@@ -16,6 +16,7 @@ SECRET_KEY = os.environ.get('SECRET_KEY', os.getenv('SECRET_KEY'))
 DEBUG = False
 
 ALLOWED_HOSTS = ['*']
+SECURE_REFERRER_POLICY = "no-referrer-when-downgrade"
 PRODUCTION_URL = 'hempdb.vercel.app'  # TODO: change after infra migration
 
 # For fetching datetime fields
