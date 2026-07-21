@@ -1,7 +1,7 @@
 # HempDB
 
-![](https://github.com/cmciosu/hemp-db/actions/workflows/migrate-test-lint.yml/badge.svg)
-![](https://img.shields.io/github/deployments/cmciosu/hemp-db/production?style=flat&logo=vercel&label=vercel)
+![](https://github.com/osu-cass/hemp-db/actions/workflows/migrate-test-lint.yml/badge.svg)
+![](https://img.shields.io/github/deployments/osu-cass/hemp-db/production?style=flat&logo=vercel&label=vercel)
 ![](https://img.shields.io/website?url=https%3A%2F%2Fhempdb.vercel.app&label=HempDB)
 
 This repository hosts all code and documentation for the HempDB Senior Capstone Project, CS46X at Oregon State University.
@@ -92,10 +92,48 @@ HempDB aims to bring visibility to the industrial hemp industry. As a result, th
 | [![Vercel](https://skillicons.dev/icons?i=vercel)](https://vercel.com/)                                | The HempDB website is deployed using Vercel, which offers great integration with GitHub.                                                                                            | [Vercel](docs/BUILD.md#vercel), [Website](docs/INFRA.md#website)                                           |
 | [![GitHub Actions](https://skillicons.dev/icons?i=githubactions)](https://github.com/features/actions) | GitHub Actions hosts workflows like continuous integration testing and deploying the documentation site.                                                                            | [GitHub Actions](docs/BUILD.md#github-actions)                                                             |
 
-More technical information, including architecture, local development, and feature documentation, can be found in the [Developer Documentation](https://cmciosu.github.io/hemp-db/) (sourced from the [`docs/`](docs/) directory).
+More technical information, including architecture, local development, and feature documentation, can be found in the [Developer Documentation](https://osu-cass.github.io/hemp-db/) (sourced from the [`docs/`](docs/) directory).
 
 ## Access and Usage
 
 - Instructions for setting up, running, and developing on HempDB are located in [DEVELOP.md](docs/DEVELOP.md).
 - User guides for public users and administrators are located in [USER.md](docs/USER.md) and [ADMIN.md](docs/ADMIN.md) respectively.
-- To submit a bug report or feature request, please create a new issue [here](https://github.com/cmciosu/hemp-db/issues).
+- To submit a bug report or feature request, please create a new issue [here](https://github.com/osu-cass/hemp-db/issues).
+
+## Service Architecture
+
+### In production
+
+<details>
+<summary>
+Expand this dropdown to see the service architecture when working in production.
+</summary>
+
+```mermaid
+flowchart TB
+    subgraph external[External Services]
+        direction LR
+        redis[Redis]
+        mysql[MySQL]
+        sentry[Sentry]
+        arcgis["ArcGIS Geocoding<br/>API"]
+        smtp[SMTP Server]
+    end
+
+    subgraph docker[Docker]
+        django[Django App]
+    end
+
+    redis --- django
+    mysql --- django
+    sentry --- django
+    arcgis --- django
+    smtp --- django
+
+    classDef externalService fill:#111,stroke:#28a745,color:#28a745,stroke-width:2px
+    classDef dockerService fill:#111,stroke:#3fa7ff,color:#3fa7ff,stroke-width:2px
+    class redis,mysql,sentry,arcgis,smtp externalService
+    class django dockerService
+```
+
+</details>
