@@ -1,0 +1,13 @@
+.git
+.github
+.venv
+venv
+__pycache__
+*.py[cod]
+.env
+.env.*
+.ruff_cache
+.pytest_cache
+mysql
+staticfiles_build
+helloworld/management/commands/auditlogs/*.csv

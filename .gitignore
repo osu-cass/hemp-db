@@ -4,6 +4,8 @@
 .env
 .ruff_cache
 *.sql
+!docker/mysql/*.sql
 /venv
 grep
 hempdb-creds.txt
+helloworld/management/commands/auditlogs/*.csv
