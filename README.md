@@ -10,7 +10,9 @@ This repository hosts all code and documentation for the HempDB Senior Capstone 
 - [Project Identity](#project-identity)
 - [Value Proposition](#value-proposition)
 - [Technical Implementation](#technical-implementation)
+- [Local Development](#local-development)
 - [Access and Usage](#access-and-usage)
+- [Service Architecture](#service-architecture)
 
 ## Project Identity
 
@@ -94,6 +96,28 @@ HempDB aims to bring visibility to the industrial hemp industry. As a result, th
 
 More technical information, including architecture, local development, and feature documentation, can be found in the [Developer Documentation](https://osu-cass.github.io/hemp-db/) (sourced from the [`docs/`](docs/) directory).
 
+## Local Development
+
+The local development environment runs Django and its supporting services with Docker Compose. The default stack includes the Django app, Percona Server for MySQL 8.4 LTS, Redis, and Mailpit. It uses safe local credentials and starts with an empty database that is migrated automatically.
+
+Build and start the default stack:
+
+```sh
+docker compose up --build
+```
+
+- HempDB: <http://localhost:8000>
+- Mailpit: <http://localhost:8025>
+- Percona Server for MySQL: `127.0.0.1:3307`
+
+phpMyAdmin is available through the optional `dev-tools` profile:
+
+```sh
+docker compose --profile dev-tools up --build
+```
+
+Open phpMyAdmin at <http://localhost:8081>. No production database, Gmail, or Sentry credentials are required for local development. See [Developing on HempDB](docs/DEVELOP.md) for management commands, configuration overrides, and database reset instructions.
+
 ## Access and Usage
 
 - Instructions for setting up, running, and developing on HempDB are located in [DEVELOP.md](docs/DEVELOP.md).
@@ -134,6 +158,47 @@ flowchart TB
     classDef dockerService fill:#111,stroke:#3fa7ff,color:#3fa7ff,stroke-width:2px
     class redis,mysql,sentry,arcgis,smtp externalService
     class django dockerService
+```
+
+</details>
+
+### In local development
+
+<details>
+<summary>
+Expand this dropdown to see the service architecture when working locally.
+</summary>
+
+```mermaid
+flowchart TB
+    subgraph external[External Services]
+        direction LR
+        arcgis["ArcGIS Geocoding<br/>API"]
+        maps["OSM and USGS<br/>Map Tiles"]
+        cdn["Fonts and<br/>CDN Assets"]
+    end
+
+    subgraph docker[Docker Compose]
+        direction LR
+        django[Django App]
+        mysql["Percona Server for MySQL 8.4 LTS"]
+        redis[Redis]
+        mailpit[Mailpit]
+        phpmyadmin["phpMyAdmin<br/>dev-tools profile"]
+    end
+
+    mysql --- django
+    redis --- django
+    mailpit --- django
+    phpmyadmin --- mysql
+    arcgis --- django
+    maps --- django
+    cdn --- django
+
+    classDef externalService fill:#111,stroke:#28a745,color:#28a745,stroke-width:2px
+    classDef dockerService fill:#111,stroke:#3fa7ff,color:#3fa7ff,stroke-width:2px
+    class arcgis,maps,cdn externalService
+    class django,mysql,redis,mailpit,phpmyadmin dockerService
 ```
 
 </details>
