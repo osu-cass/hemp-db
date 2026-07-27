@@ -31,11 +31,12 @@ ALLOWED_HOSTS = [
     for host in os.getenv('ALLOWED_HOSTS', '*').split(',')
     if host.strip()
 ]
-PRODUCTION_URL = 'hempdb.vercel.app'  # TODO: change after infra migration
+# Canonical public hostname
+PRODUCTION_URL = os.getenv('PRODUCTION_URL', 'hempdb.vercel.app')
 
 # For fetching datetime fields
 USE_TZ = True       # Make datetime objects timezone-aware
-TIME_ZONE = 'America/Los_Angeles'   # PST time, automatically handles daylight savings?  
+TIME_ZONE = 'America/Los_Angeles'   # PST time, automatically handles daylight savings?
 
 OPTIONS = {
     'init_command': "SET time_zone='+00:00';"
@@ -45,7 +46,7 @@ INTERNAL_IPS = [
     "127.0.0.1",
 ]
 
-# Logger config. Logs out all DB queries. Needs to be in DEBUG = True to log to console
+# Logging configuration.
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -61,28 +62,23 @@ LOGGING = {
     },
     'root': {
         'handlers' : ['console'],
-        'level' : 'DEBUG'
+        'level' : 'WARNING'
     },
     'loggers': {
         'helloworld': {
             'handlers': ['console'],
-            'level': 'DEBUG',
+            'level': 'INFO',
             'propagate': False
         },
-        'django.db.backends': {
+        'django': {
             'handlers': ['console'],
-            'level': 'DEBUG',
-            'propagate': False,
+            'level': 'WARNING',
+            'propagate': False
         },
         'django-cron': {
             'handlers': ['mail_admins', 'console'],
             'level': 'ERROR',
             'propagate': True
-        },
-        # Fallback to catch any logging information that is not explicitly declared above
-        '': {
-            'handlers': ['console'],
-            'level': 'DEBUG',
         }
     },
 }
