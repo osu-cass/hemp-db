@@ -1409,7 +1409,7 @@ def map(request: HttpRequest) -> HttpResponse:
             'Latitude': float(company.Latitude),
             'Longitude': float(company.Longitude),
             'Location': ', '.join([i for i in [company.Address, company.City, company.State, company.Country] if is_valid(i)]),
-            'Industry': company.Industry.id,
+            'Industry': company.Industry_id,
             'Categories': [c.id for c in company.Category.all()],
             'Stakeholder Group': [sg.id for sg in company.stakeholderGroup.all()],
             'Stages': [s.id for s in company.Stage.all()],
