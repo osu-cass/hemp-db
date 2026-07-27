@@ -1,6 +1,6 @@
 # Developing on HempDB
 
-The local development environment runs Django and its supporting services with Docker Compose. It uses safe development-only credentials and does not connect to the shared AWS database, Redis instance, Gmail account, or Sentry project.
+The local development environment runs Django and its supporting services with Docker Compose using safe development-only credentials.
 
 ## Requirements
 
@@ -21,7 +21,7 @@ No application API keys or production secrets are required for the default stack
 3. Open the application at <http://localhost:8000>.
 4. Open Mailpit at <http://localhost:8025> to inspect locally generated email.
 
-The app waits for Percona Server and Redis to become healthy, applies pending migrations, and then starts Django's autoreloading development server. Source changes are available immediately through the bind mount; dependency changes require an image rebuild.
+The app waits for Percona Server and Redis to become healthy and for Mailpit to start, applies pending migrations, and then starts Django's autoreloading development server. Source changes are available immediately through the bind mount; dependency changes require an image rebuild.
 
 The database starts with an empty migrated schema. Create a local administrator when needed:
 
@@ -58,8 +58,8 @@ docker compose --profile dev-tools up phpmyadmin
 Sign in with the local credentials from `.env.docker`:
 
 - Server: `mysql`
-- Username: `hempdb`
-- Password: `hempdb`
+- Username: `hempdb` / Password: `hempdb` (application database only)
+- Or `root` / `root` for full administration across all databases
 
 ## Django Commands
 

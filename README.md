@@ -73,7 +73,7 @@ For more information, see [Transaction Approvals](docs/ADMIN.md#transaction-appr
 
 #### Data Insights and Visualization
 
-HempDB allows users to filter companies in the database by any of their attributes. This feature is more comprehensive than it used to be on the previous spreadsheet solution. At the same time, HempDB allows users to export data, filtered or in its entirety, to spreadsheets for other research needs.
+HempDB allows users to filter companies in the database by any of their attributes. Users can also export data, filtered or in its entirety, to spreadsheets for other research needs.
 
 In addition to filtering and exporting, insights into the industry can be made geographically with the company map.
 
@@ -127,6 +127,8 @@ Open phpMyAdmin at <http://localhost:8081>. No production database, Gmail, or Se
 ## Service Architecture
 
 ### In production
+
+> **(WIP)** The production architecture is subject to rapid change while the project is being migrated.
 
 <details>
 <summary>
