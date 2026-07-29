@@ -28,7 +28,7 @@ From there, follow these steps:
 2.  **Set up your development environment**. Follow the `Local Setup` guide in [`docs/DEVELOP.md`](docs/DEVELOP.md).
 3.  **Add or update tests**.  Run the test suite to make sure everything is still working. Add or update tests as needed.
 ```bash
-python manage.py test
+docker compose exec app python manage.py test
 ```
 4.  **Update documentation**. If you've added a new feature or changed an existing one, please update the relevant documentation (e.g., `README.md`).
 5.  **Commit your changes**. Please write a clear, concise commit message. We follow the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) specification.

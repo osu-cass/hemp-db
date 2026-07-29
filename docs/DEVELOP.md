@@ -21,7 +21,7 @@ No application API keys or production secrets are required for the default stack
 3. Open the application at <http://localhost:8000>.
 4. Open Mailpit at <http://localhost:8025> to inspect locally generated email.
 
-The app waits for Percona Server and Redis to become healthy and for Mailpit to start, applies pending migrations, and then starts Django's autoreloading development server. Source changes are available immediately through the bind mount; dependency changes require an image rebuild.
+The app waits for Percona Server and Valkey to become healthy and for Mailpit to start, applies pending migrations, and then starts Django's autoreloading development server. Source changes are available immediately through the bind mount; dependency changes require an image rebuild.
 
 The database starts with an empty migrated schema. Create a local administrator when needed:
 
@@ -35,11 +35,11 @@ docker compose exec app python manage.py createsuperuser
 | --- | --- | --- |
 | `app` | Django development server and management commands | <http://localhost:8000> |
 | `mysql` | Percona Server for MySQL 8.4 LTS application and test databases | `127.0.0.1:3307` by default |
-| `redis` | Django map cache | Compose network only |
+| `valkey` | Django map cache | Compose network only |
 | `mailpit` | Captures all development email | <http://localhost:8025> |
 | `phpmyadmin` | Optional MySQL administration UI | <http://localhost:8081> |
 
-Percona Server data is stored in the `mysql_data` named volume. Redis is intentionally disposable because it contains cached data only, and Mailpit messages are not preserved across container replacement.
+Percona Server data is stored in the `mysql_data` named volume. Valkey is intentionally disposable because it contains cached data only, and Mailpit messages are not preserved across container replacement.
 
 ## phpMyAdmin
 

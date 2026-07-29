@@ -98,7 +98,7 @@ More technical information, including architecture, local development, and featu
 
 ## Local Development
 
-The local development environment runs Django and its supporting services with Docker Compose. The default stack includes the Django app, Percona Server for MySQL 8.4 LTS, Redis, and Mailpit. It uses safe local credentials and starts with an empty database that is migrated automatically.
+The local development environment runs Django and its supporting services with Docker Compose. The default stack includes the Django app, Percona Server for MySQL 8.4 LTS, Valkey, and Mailpit. It uses safe local credentials and starts with an empty database that is migrated automatically.
 
 Build and start the default stack:
 
@@ -139,7 +139,7 @@ Expand this dropdown to see the service architecture when working in production.
 flowchart TB
     subgraph external[External Services]
         direction LR
-        redis[Redis]
+        valkey[Valkey]
         mysql[MySQL]
         sentry[Sentry]
         arcgis["ArcGIS Geocoding<br/>API"]
@@ -150,7 +150,7 @@ flowchart TB
         django[Django App]
     end
 
-    redis --- django
+    valkey --- django
     mysql --- django
     sentry --- django
     arcgis --- django
@@ -158,7 +158,7 @@ flowchart TB
 
     classDef externalService fill:#111,stroke:#28a745,color:#28a745,stroke-width:2px
     classDef dockerService fill:#111,stroke:#3fa7ff,color:#3fa7ff,stroke-width:2px
-    class redis,mysql,sentry,arcgis,smtp externalService
+    class valkey,mysql,sentry,arcgis,smtp externalService
     class django dockerService
 ```
 
@@ -184,13 +184,13 @@ flowchart TB
         direction LR
         django[Django App]
         mysql["Percona Server for MySQL 8.4 LTS"]
-        redis[Redis]
+        valkey[Valkey]
         mailpit[Mailpit]
         phpmyadmin["phpMyAdmin<br/>dev-tools profile"]
     end
 
     mysql --- django
-    redis --- django
+    valkey --- django
     mailpit --- django
     phpmyadmin --- mysql
     arcgis --- django
@@ -200,7 +200,7 @@ flowchart TB
     classDef externalService fill:#111,stroke:#28a745,color:#28a745,stroke-width:2px
     classDef dockerService fill:#111,stroke:#3fa7ff,color:#3fa7ff,stroke-width:2px
     class arcgis,maps,cdn externalService
-    class django,mysql,redis,mailpit,phpmyadmin dockerService
+    class django,mysql,valkey,mailpit,phpmyadmin dockerService
 ```
 
 </details>

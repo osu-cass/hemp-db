@@ -49,7 +49,7 @@ def update_is_staff_on_group_change(sender, instance, action, reverse, model, pk
                 continue
 
 """
-Any cached data stored in Redis needs to be invalidated every time data 
+Cached map data needs to be invalidated every time data
 displayed on the map page is created, edited, or deleted.
 
 The below section will invalidate any cached map data when any model from
