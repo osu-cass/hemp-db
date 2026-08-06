@@ -6,21 +6,37 @@ import sentry_sdk
 
 load_dotenv()
 
+
+def env_bool(name, default=False):
+    """Read a boolean environment variable using common true values."""
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get('SECRET_KEY', os.getenv('SECRET_KEY'))
+SECRET_KEY = os.getenv('SECRET_KEY')
+if not SECRET_KEY:
+    raise RuntimeError('SECRET_KEY environment variable is required.')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = False
+DEBUG = env_bool('DEBUG', False)
 
-ALLOWED_HOSTS = ['*']
-PRODUCTION_URL = 'hempdb.vercel.app'  # TODO: change after infra migration
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.getenv('ALLOWED_HOSTS', '*').split(',')
+    if host.strip()
+]
+# Canonical public hostname
+PRODUCTION_URL = os.getenv('PRODUCTION_URL', 'hempdb.vercel.app')
 
 # For fetching datetime fields
 USE_TZ = True       # Make datetime objects timezone-aware
-TIME_ZONE = 'America/Los_Angeles'   # PST time, automatically handles daylight savings?  
+TIME_ZONE = 'America/Los_Angeles'   # PST time, automatically handles daylight savings?
 
 OPTIONS = {
     'init_command': "SET time_zone='+00:00';"
@@ -30,7 +46,7 @@ INTERNAL_IPS = [
     "127.0.0.1",
 ]
 
-# Logger config. Logs out all DB queries. Needs to be in DEBUG = True to log to console
+# Logging configuration.
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -46,28 +62,23 @@ LOGGING = {
     },
     'root': {
         'handlers' : ['console'],
-        'level' : 'DEBUG'
+        'level' : 'WARNING'
     },
     'loggers': {
         'helloworld': {
             'handlers': ['console'],
-            'level': 'DEBUG',
+            'level': 'INFO',
             'propagate': False
         },
-        'django.db.backends': {
+        'django': {
             'handlers': ['console'],
-            'level': 'DEBUG',
-            'propagate': False,
+            'level': 'WARNING',
+            'propagate': False
         },
         'django-cron': {
             'handlers': ['mail_admins', 'console'],
             'level': 'ERROR',
             'propagate': True
-        },
-        # Fallback to catch any logging information that is not explicitly declared above
-        '': {
-            'handlers': ['console'],
-            'level': 'DEBUG',
         }
     },
 }
@@ -119,24 +130,23 @@ TEMPLATES = [
 WSGI_APPLICATION = 'hempdb.wsgi.app'
 
 # MySQL DB config
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.mysql',
-        'NAME': os.environ.get('MYSQL_NAME', os.getenv('MYSQL_NAME')),
-        'USER': os.environ.get('MYSQL_USER', os.getenv('MYSQL_USER')),
-        'PASSWORD': os.environ.get('MYSQL_PASS', os.getenv('MYSQL_PASS')),
-        'HOST': os.environ.get('MYSQL_HOST', os.getenv('MYSQL_HOST')),
-        'PORT': '3306',
-        'OPTIONS': {
-            'init_command': "SET time_zone = 'America/Los_Angeles';" # timezone conversion
-        }
-    }
-}
+DATABASE_URL = os.getenv('DATABASE_URL')
+if not DATABASE_URL:
+    raise RuntimeError('DATABASE_URL environment variable is required.')
 
-DATABASES['default'] = dj_database_url.config(conn_max_age=600, ssl_require=True)
-DATABASES['default']['OPTIONS']['charset'] = 'utf8mb4'
-del DATABASES['default']['OPTIONS']['sslmode'] 
-DATABASES['default']['OPTIONS']['ssl'] =  {'ca': os.environ.get('MYSQL_ATTR_SSL_CA')}
+DATABASE_SSL = env_bool('DATABASE_SSL', True)
+DATABASES = {
+    'default': dj_database_url.config(
+        default=DATABASE_URL,
+        conn_max_age=600,
+        ssl_require=DATABASE_SSL,
+    )
+}
+database_options = DATABASES['default'].setdefault('OPTIONS', {})
+database_options['charset'] = 'utf8mb4'
+database_options.pop('sslmode', None)
+if DATABASE_SSL:
+    database_options['ssl'] = {'ca': os.getenv('MYSQL_ATTR_SSL_CA')}
 
 
 # Password validation
@@ -184,33 +194,44 @@ CRISPY_ALLOWED_TEMPLATE_PACKS = 'bootstrap5'
 CRISPY_TEMPLATE_PACK = 'bootstrap5'
 
 # Sentry config
-sentry_sdk.init(
-    dsn=os.environ.get('SENTRY_DSN', os.getenv('SENTRY_DSN')),
-    # Set traces_sample_rate to 1.0 to capture 100%
-    # of transactions for performance monitoring.
-    traces_sample_rate=1.0,
-    # Set profiles_sample_rate to 1.0 to profile 100%
-    # of sampled transactions.
-    # We recommend adjusting this value in production.
-    profiles_sample_rate=1.0,
-)
+SENTRY_DSN = os.getenv('SENTRY_DSN', '').strip()
+if SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        # Set traces_sample_rate to 1.0 to capture 100%
+        # of transactions for performance monitoring.
+        traces_sample_rate=1.0,
+        # Set profiles_sample_rate to 1.0 to profile 100%
+        # of sampled transactions.
+        # We recommend adjusting this value in production.
+        profiles_sample_rate=1.0,
+    )
 
 # Configuration for sending emails
 # https://docs.djangoproject.com/en/5.1/topics/email/
-EMAIL_HOST = 'smtp.gmail.com'
-EMAIL_PORT = 587
-EMAIL_USE_TLS = True
-EMAIL_HOST_USER = DEFAULT_FROM_EMAIL = os.getenv('EMAIL_USER')
-EMAIL_HOST_PASSWORD = os.getenv('EMAIL_APP_PASSWORD')
+EMAIL_BACKEND = os.getenv(
+    'EMAIL_BACKEND',
+    'django.core.mail.backends.console.EmailBackend'
+    if DEBUG
+    else 'django.core.mail.backends.smtp.EmailBackend',
+)
+EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.gmail.com')
+EMAIL_PORT = int(os.getenv('EMAIL_PORT', '587'))
+EMAIL_USE_TLS = env_bool('EMAIL_USE_TLS', not DEBUG)
+EMAIL_HOST_USER = os.getenv('EMAIL_USER', '')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_APP_PASSWORD', '')
+DEFAULT_FROM_EMAIL = os.getenv(
+    'DEFAULT_FROM_EMAIL',
+    EMAIL_HOST_USER or 'webmaster@localhost',
+)
+EMAIL_LINK = os.getenv(
+    'EMAIL_LINK',
+    'http://localhost:8000' if DEBUG else f'https://{PRODUCTION_URL}',
+)
 
-if DEBUG: # Print emails to console instead of sending them
-    EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
-    EMAIL_LINK = "http://localhost:8000"
-else:
-    EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
-    EMAIL_LINK = f"https://{PRODUCTION_URL}"
-
-REDIS_URL = os.getenv('REDIS_URL').strip()
+REDIS_URL = os.getenv('REDIS_URL', '').strip()
+if not REDIS_URL:
+    raise RuntimeError('REDIS_URL environment variable is required.')
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",

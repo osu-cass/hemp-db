@@ -1,7 +1,7 @@
 # HempDB
 
-![](https://github.com/cmciosu/hemp-db/actions/workflows/migrate-test-lint.yml/badge.svg)
-![](https://img.shields.io/github/deployments/cmciosu/hemp-db/production?style=flat&logo=vercel&label=vercel)
+![](https://github.com/osu-cass/hemp-db/actions/workflows/migrate-test-lint.yml/badge.svg)
+![](https://img.shields.io/github/deployments/osu-cass/hemp-db/production?style=flat&logo=vercel&label=vercel)
 ![](https://img.shields.io/website?url=https%3A%2F%2Fhempdb.vercel.app&label=HempDB)
 
 This repository hosts all code and documentation for the HempDB Senior Capstone Project, CS46X at Oregon State University.
@@ -10,7 +10,9 @@ This repository hosts all code and documentation for the HempDB Senior Capstone 
 - [Project Identity](#project-identity)
 - [Value Proposition](#value-proposition)
 - [Technical Implementation](#technical-implementation)
+- [Local Development](#local-development)
 - [Access and Usage](#access-and-usage)
+- [Service Architecture](#service-architecture)
 
 ## Project Identity
 
@@ -71,7 +73,7 @@ For more information, see [Transaction Approvals](docs/ADMIN.md#transaction-appr
 
 #### Data Insights and Visualization
 
-HempDB allows users to filter companies in the database by any of their attributes. This feature is more comprehensive than it used to be on the previous spreadsheet solution. At the same time, HempDB allows users to export data, filtered or in its entirety, to spreadsheets for other research needs.
+HempDB allows users to filter companies in the database by any of their attributes. Users can also export data, filtered or in its entirety, to spreadsheets for other research needs.
 
 In addition to filtering and exporting, insights into the industry can be made geographically with the company map.
 
@@ -92,10 +94,117 @@ HempDB aims to bring visibility to the industrial hemp industry. As a result, th
 | [![Vercel](https://skillicons.dev/icons?i=vercel)](https://vercel.com/)                                | The HempDB website is deployed using Vercel, which offers great integration with GitHub.                                                                                            | [Vercel](docs/BUILD.md#vercel), [Website](docs/INFRA.md#website)                                           |
 | [![GitHub Actions](https://skillicons.dev/icons?i=githubactions)](https://github.com/features/actions) | GitHub Actions hosts workflows like continuous integration testing and deploying the documentation site.                                                                            | [GitHub Actions](docs/BUILD.md#github-actions)                                                             |
 
-More technical information, including architecture, local development, and feature documentation, can be found in the [Developer Documentation](https://cmciosu.github.io/hemp-db/) (sourced from the [`docs/`](docs/) directory).
+More technical information, including architecture, local development, and feature documentation, can be found in the [Developer Documentation](https://osu-cass.github.io/hemp-db/) (sourced from the [`docs/`](docs/) directory).
+
+## Local Development
+
+The local development environment runs Django and its supporting services with Docker Compose. The default stack includes the Django app, Percona Server for MySQL 8.4 LTS, Valkey, and Mailpit. It uses safe local credentials. The first run starts with an empty database and applies migrations automatically.
+
+Build and start the default stack:
+
+```sh
+docker compose up --build
+```
+
+- HempDB: <http://localhost:8000>
+- Mailpit: <http://localhost:8025>
+- Percona Server for MySQL: `127.0.0.1:3307`
+
+phpMyAdmin is available through the optional `dev-tools` profile:
+
+```sh
+# Start only phpMyAdmin and its Percona Server dependency
+docker compose --profile dev-tools up phpmyadmin
+
+# Start the full stack with phpMyAdmin
+docker compose --profile dev-tools up --build
+```
+
+Open phpMyAdmin at <http://localhost:8081>. No production database, Gmail, or Sentry credentials are required for local development. See [Developing on HempDB](docs/DEVELOP.md) for management commands, configuration overrides, and database reset instructions.
 
 ## Access and Usage
 
 - Instructions for setting up, running, and developing on HempDB are located in [DEVELOP.md](docs/DEVELOP.md).
 - User guides for public users and administrators are located in [USER.md](docs/USER.md) and [ADMIN.md](docs/ADMIN.md) respectively.
-- To submit a bug report or feature request, please create a new issue [here](https://github.com/cmciosu/hemp-db/issues).
+- To submit a bug report or feature request, please create a new issue [here](https://github.com/osu-cass/hemp-db/issues).
+
+## Service Architecture
+
+### In production
+
+> **(WIP)** The production architecture is subject to rapid change while the project is being migrated.
+
+<details>
+<summary>
+Expand this dropdown to see the service architecture when working in production.
+</summary>
+
+```mermaid
+flowchart TB
+    subgraph external[External Services]
+        direction LR
+        valkey[Valkey]
+        mysql[MySQL]
+        sentry[Sentry]
+        arcgis["ArcGIS Geocoding<br/>API"]
+        smtp[SMTP Server]
+    end
+
+    subgraph docker[Docker]
+        django[Django App]
+    end
+
+    valkey --- django
+    mysql --- django
+    sentry --- django
+    arcgis --- django
+    smtp --- django
+
+    classDef externalService fill:#111,stroke:#28a745,color:#28a745,stroke-width:2px
+    classDef dockerService fill:#111,stroke:#3fa7ff,color:#3fa7ff,stroke-width:2px
+    class valkey,mysql,sentry,arcgis,smtp externalService
+    class django dockerService
+```
+
+</details>
+
+### In local development
+
+<details>
+<summary>
+Expand this dropdown to see the service architecture when working locally.
+</summary>
+
+```mermaid
+flowchart TB
+    subgraph external[External Services]
+        direction LR
+        arcgis["ArcGIS Geocoding<br/>API"]
+        maps["OSM and USGS<br/>Map Tiles"]
+        cdn["Fonts and<br/>CDN Assets"]
+    end
+
+    subgraph docker[Docker Compose]
+        direction LR
+        django[Django App]
+        mysql["Percona Server for MySQL 8.4 LTS"]
+        valkey[Valkey]
+        mailpit[Mailpit]
+        phpmyadmin["phpMyAdmin<br/>dev-tools profile"]
+    end
+
+    mysql --- django
+    valkey --- django
+    mailpit --- django
+    phpmyadmin --- mysql
+    arcgis --- django
+    maps --- django
+    cdn --- django
+
+    classDef externalService fill:#111,stroke:#28a745,color:#28a745,stroke-width:2px
+    classDef dockerService fill:#111,stroke:#3fa7ff,color:#3fa7ff,stroke-width:2px
+    class arcgis,maps,cdn externalService
+    class django,mysql,valkey,mailpit,phpmyadmin dockerService
+```
+
+</details>
