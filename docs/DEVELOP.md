@@ -68,7 +68,7 @@ Run management commands inside the app container:
 ```sh
 docker compose exec app python manage.py makemigrations
 docker compose exec app python manage.py migrate
-docker compose exec app python manage.py runcrons --force
+docker compose exec app python manage.py audit_email
 ```
 
 Pending migrations are also applied automatically whenever the app container starts.

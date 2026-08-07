@@ -4,10 +4,10 @@
 
 The auditing functionality as of Spring 2025 is done through the terminal. The relevant files are under `helloworld/management/`:
 
-Script: `admin.py`
+Script: `audit.py`
 List of past audit logs: `auditlogs/`
 
-Running the script `admin.py` will generate a .csv file with the name: `data_audit_YYYY_MM_DD` with the current day in YYYY_MM_DD format. The .csv file will have three different columns: 
+Running the command will generate a .csv file with the name: `data_audit_YYYY_MM_DD` with the current day in YYYY_MM_DD format. The .csv file will have three different columns:
 
 1. **id**
     * The integer id of the company in the database
@@ -34,6 +34,9 @@ To execute the command in the terminal:
 * Enter the root directory `hemp-db`
 * Run `python manage.py audit`
 
+Run `python manage.py audit_email` to generate the report and email it to the
+configured recipients.
+
 
 ## Limitations
 
@@ -44,5 +47,6 @@ The script takes a very long time to evaluate due to the volume of data in the d
 The audit logs will not be automatically removed. This is a future addition that would ideally be completed at the same time that automating the auditing process through CRON jobs would be implemented.
 
 * Affected Users
-On success or failure, the script will be emailed to people listed with the **'Admin'** role in the Django application. This can be modified further in `hemp-db/helloworld/cron.py` in a parameter of the email generation. On success, an email notification that contains the newly-generated .csv file will be sent to administrators and specific developers. **Developers interested in testing this email notification locally should include their email address in the .env file under 'AUDIT_RECIPIENT'**
-
+The `audit_email` command sends success and failure notifications to people in
+the **'Admin'** role. On success, the generated CSV is attached. Developers can
+also set `AUDIT_RECIPIENT` in their environment to receive the notification.

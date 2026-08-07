@@ -54,10 +54,6 @@ LOGGING = {
         'console': {
             'level': 'DEBUG',
             'class': 'logging.StreamHandler',
-        },
-        'mail_admins': {
-            'level': 'ERROR',
-            'class': 'django.utils.log.AdminEmailHandler'
         }
     },
     'root': {
@@ -75,11 +71,6 @@ LOGGING = {
             'level': 'WARNING',
             'propagate': False
         },
-        'django-cron': {
-            'handlers': ['mail_admins', 'console'],
-            'level': 'ERROR',
-            'propagate': True
-        }
     },
 }
 
@@ -94,7 +85,6 @@ INSTALLED_APPS = [
     'crispy_forms',
     'bootstrap5',
     'crispy_bootstrap5',
-    'django_cron',
 ]
 
 MIDDLEWARE = [
@@ -238,10 +228,3 @@ CACHES = {
         "LOCATION": REDIS_URL,
     }
 }
-
-CRON_CLASSES = [
-    "helloworld.cron.CronAudit",
-]
-
-# Fill in for administrators/developers to receive emails about cron jobs with (Name, Email)
-ADMINS = []
