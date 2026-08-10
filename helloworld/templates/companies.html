@@ -55,14 +55,6 @@
     {% endif %}
 
     <div class="d-flex justify-content-center gap-2 my-3">
-      <style>
-        .pagestyle {
-          transition: transform 0.2s ease-in-out;
-        }
-        .pagestyle:hover {
-          transform: scale(1.3);
-        }
-      </style>
       {% for page in page_index %}
         {% if cur_page == forloop.counter %}
           <a href="/companies/?page={{ forloop.counter }}" class="pagestyle text-decoration-underline fw-bold text-primary"> {{page}} </a>
@@ -106,9 +98,9 @@
             <td>
               <div style="display: flex; gap: 5px;">
                 <a href="{% url 'edit-company' company.id %}" class="btn btn-secondary">Edit</a>
-                <a type="button" class="btn btn-danger" href="/remove_companies/{{ company.id }}" onclick="return confirm('Are You Sure You Would Like To Delete This?')"> 
+                <a class="btn btn-danger" href="/remove_companies/{{ company.id }}" aria-label="Delete {{ company.Name }}" data-confirm-message="Are You Sure You Would Like To Delete This?">
                 <!-- Delete -->
-                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" class="bi bi-trash" viewBox="0 0 16 16">
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" class="bi bi-trash" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
                   <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0z"></path>
                   <path d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4zM2.5 3h11V2h-11z"></path>
                 </svg>
@@ -136,12 +128,7 @@
         <form id="upload_form" method="post" action="/companies/">
 
           {% csrf_token %}
-          <div style="display: block; margin-left: 10px; margin-right: 10px;">
-            <style>
-              ul {
-                list-style-type: none;
-              }
-            </style>
+          <div class="company-create-form" style="display: block; margin-left: 10px; margin-right: 10px;">
               <div class="container">
                 <div class="row">
                   {% for field in form %}
@@ -203,9 +190,7 @@
           {% endif %}
         {% endfor %}
       </div>
-      <button class="btn btn-secondary float-end" onclick='
-        document.body.scrollTop = 0;
-        document.documentElement.scrollTop = 0;'>
+      <button class="btn btn-secondary float-end" data-scroll-top>
         Go to Top
       </button>
     </div>
