@@ -4,6 +4,8 @@ import os
 import dj_database_url
 import sentry_sdk
 
+from hempdb.csp import build_csp_directives, validate_report_uri
+
 load_dotenv()
 
 
@@ -95,11 +97,14 @@ INSTALLED_APPS = [
     'django_bootstrap5',
     'crispy_bootstrap5',
     'django_cron',
+    'csp',
 ]
 
 MIDDLEWARE = [
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'csp.middleware.CSPMiddleware',
+    'hempdb.middleware.CSPReportingMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -107,6 +112,11 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
+csp_report_uri = validate_report_uri(os.getenv('CSP_REPORT_URI'))
+CONTENT_SECURITY_POLICY = {
+    'DIRECTIVES': build_csp_directives(csp_report_uri),
+}
 
 # Top-level URLs
 ROOT_URLCONF = 'hempdb.urls'
