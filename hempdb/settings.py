@@ -92,7 +92,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'helloworld.apps.HelloworldConfig',
     'crispy_forms',
-    'bootstrap5',
+    'django_bootstrap5',
     'crispy_bootstrap5',
     'django_cron',
 ]
