@@ -1,0 +1,44 @@
+.pagestyle {
+  transition: transform 0.2s ease-in-out;
+}
+
+.pagestyle:hover {
+  transform: scale(1.3);
+}
+
+.company-create-form ul {
+  list-style-type: none;
+}
+
+.pending-change-row {
+  cursor: pointer;
+}
+
+.pending-change-row:hover > * {
+  background-color: #dbd9d9;
+}
+
+.pending-change-row .stretched-link:focus-visible::after {
+  outline: 3px solid #0d6efd;
+  outline-offset: -3px;
+}
+
+.changes-comparison {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.changes-comparison th,
+.changes-comparison td {
+  border: 1px solid #ddd;
+  padding: 8px;
+}
+
+.changes-comparison th {
+  background-color: #f2f2f2;
+  text-align: left;
+}
+
+.changes-comparison .highlight {
+  background-color: #ffdddd;
+}
