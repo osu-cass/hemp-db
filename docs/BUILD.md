@@ -34,19 +34,22 @@ Note that these PR deployments are considered Preview deployments and not a Prod
 
 ## Migrations
 
-The `helloworld` migrations `0001`–`0017` are squashed into a single migration,
-`0001_squashed_0017_pendingchanges_status`. It carries `initial = True` and a
-`replaces` list covering all 17 original names, so Django treats it as
-interchangeable with the original chain.
+The former `helloworld` migrations `0001`–`0017` are represented by the single
+canonical migration `0001_squashed_0017_pendingchanges_status`. It carries
+`initial = True` and builds the complete schema through the former `0017`.
 
 * **Fresh database:** run `python manage.py migrate --noinput`. The squashed
   migration builds the whole schema on its own.
-* **Existing database already at `0017`:** run `python manage.py migrate
-  --noinput`. Django recognizes the replaced history and inserts one
-  migration-history row. No DDL runs and no application data changes.
+* **Cleanup deployment prerequisite:** before deploying the release that
+  removed the original files, every persistent database must have run the
+  transitional squash release and recorded
+  `0001_squashed_0017_pendingchanges_status` in `django_migrations`.
+* **Existing database that completed the transition:** run `python manage.py
+  migrate --noinput` normally. The canonical migration is already recorded, so
+  no schema or application-data changes run.
 * **Never use `--fake` or `--fake-initial` on `helloworld`.** Because
-  `initial = True` now covers all 17 migrations rather than just
-  `0001_initial`, faking makes Django skip the entire schema history —
+  `initial = True` represents the entire schema through the former `0017`,
+  faking makes Django skip the entire schema history —
   including `Latitude`/`Longitude`, the `PendingChanges` foreign-key rework,
   `Resources.priority`, `dateCreated`/`lastUpdated`, and
   `PendingChanges.status` — while still recording every row as applied. The
@@ -54,8 +57,10 @@ interchangeable with the original chain.
   it. This applies to restoring from a backup: restore the data, then let
   `migrate` run normally.
 * **New migrations** must depend on
-  `0001_squashed_0017_pendingchanges_status`, not on any `00XX` name it
-  replaces.
+  `0001_squashed_0017_pendingchanges_status`.
+* **Optional history cleanup:** after this cleanup release is deployed, run
+  `python manage.py migrate helloworld --prune` if deleted migration names may
+  be reused.
 
 MySQL does not roll back DDL when a migration fails partway through, so a
 failed run against a fresh database can leave tables behind with no
