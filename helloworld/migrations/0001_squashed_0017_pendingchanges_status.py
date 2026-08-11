@@ -50,9 +50,6 @@ def fix_duplicate_stage_Markets(apps, schema_editor):
         pass
 
 class Migration(migrations.Migration):
-
-    replaces = [('helloworld', '0001_initial'), ('helloworld', '0002_auto_20240510_0621'), ('helloworld', '0003_auto_20240511_2246'), ('helloworld', '0004_resources'), ('helloworld', '0005_alter_resources_image'), ('helloworld', '0006_alter_resources_title'), ('helloworld', '0007_auto_20240521_1855'), ('helloworld', '0008_alter_resources_image'), ('helloworld', '0009_uploadindex'), ('helloworld', '0010_alter_category_options_alter_company_options_and_more'), ('helloworld', '0011_company_latitude_company_longitude_and_more'), ('helloworld', '0012_remove_pendingchanges_companyid_and_more'), ('helloworld', '0013_resources_priority'), ('helloworld', '0014_company_datecreated_company_lastupdated_and_more'), ('helloworld', '0015_remove_stage_category_and_resolve_duplicates'), ('helloworld', '0016_alter_company_datecreated_and_more'), ('helloworld', '0017_pendingchanges_status')]
-
     initial = True
 
     dependencies = [
