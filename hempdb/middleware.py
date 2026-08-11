@@ -1,7 +1,24 @@
 import json
 import os
 
+from django.conf import settings
+
 from .csp import REPORTING_GROUP, validate_report_uri
+
+
+class PermissionsPolicyMiddleware:
+    """Add the configured Permissions-Policy header to responses."""
+
+    def __init__(self, get_response):
+        """Store the next middleware and configured policy."""
+        self.get_response = get_response
+        self.policy = settings.PERMISSIONS_POLICY
+
+    def __call__(self, request):
+        """Add the policy unless the response already defines one."""
+        response = self.get_response(request)
+        response.headers.setdefault("Permissions-Policy", self.policy)
+        return response
 
 
 class CSPReportingMiddleware:

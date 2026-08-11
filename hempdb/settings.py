@@ -100,9 +100,15 @@ INSTALLED_APPS = [
     'csp',
 ]
 
+SECURE_REFERRER_POLICY = 'same-origin'
+PERMISSIONS_POLICY = (
+    'camera=(), geolocation=(), microphone=(), payment=(), usb=()'
+)
+
 MIDDLEWARE = [
-    'whitenoise.middleware.WhiteNoiseMiddleware',
+    'hempdb.middleware.PermissionsPolicyMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'csp.middleware.CSPMiddleware',
     'hempdb.middleware.CSPReportingMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
