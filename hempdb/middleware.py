@@ -10,14 +10,13 @@ class PermissionsPolicyMiddleware:
     """Add the configured Permissions-Policy header to responses."""
 
     def __init__(self, get_response):
-        """Store the next middleware and configured policy."""
+        """Store the next middleware callable."""
         self.get_response = get_response
-        self.policy = settings.PERMISSIONS_POLICY
 
     def __call__(self, request):
         """Add the policy unless the response already defines one."""
         response = self.get_response(request)
-        response.headers.setdefault("Permissions-Policy", self.policy)
+        response.headers.setdefault("Permissions-Policy", settings.PERMISSIONS_POLICY)
         return response
 
 

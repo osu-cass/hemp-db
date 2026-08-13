@@ -101,9 +101,7 @@ INSTALLED_APPS = [
 ]
 
 SECURE_REFERRER_POLICY = 'same-origin'
-PERMISSIONS_POLICY = (
-    'camera=(), geolocation=(), microphone=(), payment=(), usb=()'
-)
+PERMISSIONS_POLICY = 'camera=(), geolocation=(), microphone=(), payment=(), usb=()'
 
 MIDDLEWARE = [
     'hempdb.middleware.PermissionsPolicyMiddleware',
