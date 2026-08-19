@@ -3,18 +3,12 @@ from dotenv import load_dotenv
 import os
 import dj_database_url
 import sentry_sdk
+from sentry_sdk.integrations.django import DjangoIntegration
 
 from hempdb.csp import build_csp_directives, validate_report_uri
+from hempdb.environment import env_bool, env_rate
 
 load_dotenv()
-
-
-def env_bool(name, default=False):
-    """Read a boolean environment variable using common true values."""
-    value = os.getenv(name)
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -209,16 +203,20 @@ CRISPY_TEMPLATE_PACK = 'bootstrap5'
 
 # Sentry config
 SENTRY_DSN = os.getenv('SENTRY_DSN', '').strip()
+SENTRY_ENVIRONMENT = (
+    os.getenv('SENTRY_ENVIRONMENT')
+    or ('development' if DEBUG else 'production')
+).strip()
+SENTRY_RELEASE = os.getenv('SENTRY_RELEASE', '').strip() or None
+SENTRY_TRACES_SAMPLE_RATE = env_rate('SENTRY_TRACES_SAMPLE_RATE', 0.1)
 if SENTRY_DSN:
     sentry_sdk.init(
         dsn=SENTRY_DSN,
-        # Set traces_sample_rate to 1.0 to capture 100%
-        # of transactions for performance monitoring.
-        traces_sample_rate=1.0,
-        # Set profiles_sample_rate to 1.0 to profile 100%
-        # of sampled transactions.
-        # We recommend adjusting this value in production.
-        profiles_sample_rate=1.0,
+        integrations=[DjangoIntegration()],
+        environment=SENTRY_ENVIRONMENT,
+        release=SENTRY_RELEASE,
+        traces_sample_rate=SENTRY_TRACES_SAMPLE_RATE,
+        send_default_pii=False,
     )
 
 # Configuration for sending emails
