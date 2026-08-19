@@ -204,9 +204,9 @@ CRISPY_TEMPLATE_PACK = 'bootstrap5'
 # Sentry config
 SENTRY_DSN = os.getenv('SENTRY_DSN', '').strip()
 SENTRY_ENVIRONMENT = (
-    os.getenv('SENTRY_ENVIRONMENT')
+    os.getenv('SENTRY_ENVIRONMENT', '').strip()
     or ('development' if DEBUG else 'production')
-).strip()
+)
 SENTRY_RELEASE = os.getenv('SENTRY_RELEASE', '').strip() or None
 SENTRY_TRACES_SAMPLE_RATE = env_rate('SENTRY_TRACES_SAMPLE_RATE', 0.1)
 if SENTRY_DSN:
