@@ -31,6 +31,11 @@ from .models import Industry
 from .models import Status
 from .models import Resources
 from .models import UploadIndex
+from .upload import (
+    UploadValidationError,
+    import_pending_companies,
+    read_upload_dataframe,
+)
 from .notifications import email_admins
 from .authentication import activate_email
 from django.shortcuts import render, redirect
@@ -51,15 +56,15 @@ from django.conf import settings
 
 import csv
 import geocoder
+import logging
 from decimal import Decimal
 from copy import deepcopy
-import pandas as pd
-import numpy as np
 
 from django.db import models
 
 # Used for Pagination Bar on /companies
 PAGE_INDEX=['A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z','0','1','2','3','4','5','6','7','8','9']
+logger = logging.getLogger(__name__)
 
 @staff_member_required
 def upload_wizard(request: HttpRequest) -> HttpResponse:
@@ -131,30 +136,25 @@ def upload_file(request: HttpRequest) -> HttpResponse:
     """
     if request.method == "POST":
         form = UploadFileForm(request.POST, request.FILES)
-        try:
-            if form.is_valid():
-                file = request.FILES["file"]
-                df = pd.read_csv(file)
-                df = df.replace({np.nan: ''})
-                frames = df.to_dict("records")
-                for frame in frames:
-                    frame["Status"] = Status.objects.get(id = frame["Status"])
-                    frame["Industry"] = Industry.objects.get(id = frame["Industry"])
-                    frame["Grower"] = Grower.objects.get(id = frame["Grower"])
-                    model = PendingCompany(**frame)
-                    model.save()
-                    if (model.id):
-                        upload = UploadIndex(pendingID = model.id)
-                        upload.save()
-                return redirect("/upload_wizard")
-        except:  # noqa: E722
-            messages.error(request, 'There was an error with the file upload') 
-            return redirect("/companies")
-                
-    else:
-        form = UploadFileForm()
-
-    return render(request, "upload.html", {"form": form})
+        if form.is_valid():
+            uploaded_file = form.cleaned_data["file"]
+            try:
+                dataframe = read_upload_dataframe(uploaded_file)
+                import_pending_companies(dataframe)
+            except UploadValidationError as error:
+                logger.warning("Company upload rejected for %s: %s", uploaded_file.name, error)
+                messages.error(request, f"Upload failed: {error}")
+                return redirect("companies")
+            except Exception:
+                logger.exception("Unexpected company upload failure for %s", uploaded_file.name)
+                messages.error(
+                    request,
+                    "Upload failed unexpectedly. Check the file format or contact an administrator.",
+                )
+                return redirect("companies")
+            return redirect("upload-wizard")
+        messages.error(request, "Upload failed: select a CSV or XLSX file to upload.")
+    return redirect("companies")
 
 def index(request: HttpRequest) -> HttpResponse:
     """
