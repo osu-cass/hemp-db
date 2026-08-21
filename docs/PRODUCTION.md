@@ -8,7 +8,7 @@ Source Lab through the `osl-app` Chef cookbook, which owns the repository
 checkout, the `.env` file, the secret files, and the deploy runs described
 below.
 
-## Compose files
+## Compose Files
 
 | File | Role | Docker-managed services |
 | --- | --- | --- |
@@ -27,11 +27,11 @@ and Mailpit exists only in local development or staging.
 Compose resolves relative paths from the first file in each command, so run
 the commands from the repository root and keep the file order shown below.
 
-## Environment and secrets
+## Environment and Secrets
 
-Each deployment host has its own checkout with a single `.env` file that
-Compose loads automatically — no `--env-file` flag is needed. Copy the
-matching example to create it:
+Each deployment host has its own checkout with a single `.env` file, which
+Compose loads automatically without an `--env-file` flag. Copy the matching
+example to create it:
 
 ```sh
 cp .env.production.example .env   # or .env.staging.example on staging
@@ -53,7 +53,7 @@ Email goes through the OSL SMTP relay (`smtp.osuosl.org`, port 25, STARTTLS,
 no authentication), so there is no SMTP credential anywhere in the stack.
 Staging overrides mail delivery to its bundled Mailpit instead.
 
-### `env_file` and Docker secrets
+### `env_file` and Docker Secrets
 
 Compose uses two environment mechanisms for deployment. The overlays attach
 `.env` with `env_file` to `migrate`, `app`, and `cron`. The file carries
@@ -93,7 +93,7 @@ chmod 700 docker/secrets
 chmod 400 docker/secrets/*
 ```
 
-### Defaults and optional tuning
+### Defaults and Optional Tuning
 
 Stable deployment values are kept out of the example files. The production
 overlay binds the app to loopback port `8000`; it and the shared base default
@@ -172,11 +172,16 @@ Use one external scheduler, such as a Chef-managed host crontab entry:
 0 3 * * * cd /path/to/hemp-db && docker compose -f compose.deploy.yaml -f compose.prod.yaml run --rm --no-deps cron
 ```
 
+The crontab only polls: `RUN_EVERY_MINS` in `helloworld/cron.py` (currently
+3 weeks) gates when `CronAudit` actually runs, so the daily invocations
+between intervals are silent no-ops. Adjust `RUN_EVERY_MINS` to change the
+audit cadence.
+
 Do not schedule the job independently in each web replica. Audit CSVs are
 stored in the `audit_logs` named volume and attached to the notification
 email.
 
-## Build validation
+## Build Validation
 
 Use the build override to validate a local production image. It tags the
 result `hempdb:local-production`, so it never overwrites a pulled published
@@ -192,7 +197,7 @@ fork PRs build without publishing. Pushes to `dev` publish the `dev` tag;
 pushes to `main` publish `main` and `latest`. A weekly scheduled workflow
 rebuilds both branches so published images pick up base-image fixes.
 
-## Host responsibilities (Chef)
+## Host Responsibilities (Chef)
 
 The staging and production hosts are managed by the `osl-app` Chef cookbook,
 which owns everything outside this repository:

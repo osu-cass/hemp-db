@@ -1,21 +1,21 @@
-# Build pipeline
+# Build Pipeline
 
 This page describes HempDB's GitHub Actions workflows. Docker staging and
 production operations are documented in [PRODUCTION.md](PRODUCTION.md).
 
 ## GitHub Actions
 
-### CI workflow
+### CI Workflow
 
 The [Django CI workflow](https://github.com/osu-cass/hemp-db/actions/workflows/migrate-test-lint.yml) is configured by `migrate-test-lint.yml`. It runs on pull requests targeting `main` or `dev`.
 
 It builds the development image from `compose.yaml`, runs Ruff, then runs
 migrations and the test suite against ephemeral Percona MySQL and Valkey
-containers — no external database or repository secrets are involved. The
+containers. No external database or repository secrets are involved. The
 workflow must pass before a pull request is merged. Tests are in
 `helloworld/tests.py` and the `hempdb/tests/` package.
 
-### Container workflow
+### Container Workflow
 
 The `container.yml` workflow has two jobs. `validate` checks the local,
 staging, and production Compose configurations, including the build override.
@@ -25,7 +25,7 @@ pushes to `dev` publish the `dev` tag to GitHub Container Registry, and pushes
 to `main` publish `main` and `latest`. A weekly scheduled run rebuilds both
 branches so published images pick up base-image fixes.
 
-### Pages workflow
+### Pages Workflow
 
 The [pages-build-deployment workflow](https://github.com/osu-cass/hemp-db/actions/workflows/pages/pages-build-deployment) deploys the markdown files in `docs/` to this documentation site.
 
@@ -43,13 +43,13 @@ interchangeable with the original chain.
   migration-history row. No DDL runs and no application data changes.
 * **Never use `--fake` or `--fake-initial` on `helloworld`.** Because
   `initial = True` now covers all 17 migrations rather than just
-  `0001_initial`, faking makes Django skip the entire schema history —
-  including `Latitude`/`Longitude`, the `PendingChanges` foreign-key rework,
+  `0001_initial`, faking makes Django skip the entire schema history while
+  still recording every row as applied. The skipped history includes
+  `Latitude`/`Longitude`, the `PendingChanges` foreign-key rework,
   `Resources.priority`, `dateCreated`/`lastUpdated`, and
-  `PendingChanges.status` — while still recording every row as applied. The
-  resulting schema drift is permanent and later `migrate` runs will not detect
-  it. This applies to restoring from a backup: restore the data, then let
-  `migrate` run normally.
+  `PendingChanges.status`. The resulting schema drift is permanent and later
+  `migrate` runs will not detect it. This applies to restoring from a backup:
+  restore the data, then let `migrate` run normally.
 * **New migrations** must depend on
   `0001_squashed_0017_pendingchanges_status`, not on any `00XX` name it
   replaces.

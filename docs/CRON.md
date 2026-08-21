@@ -1,13 +1,13 @@
 # Cron Jobs
 
-### This document contains information on the Cron Job configuration and limitations for HempDB
-
-Cron jobs are meant to streamline simple, repetitive tasks. They are set up using `django-cron` (https://django-cron.readthedocs.io/en/latest/).
+Cron jobs are meant to streamline simple, repetitive tasks. They are set up using `django-cron` (<https://django-cron.readthedocs.io/en/latest/>).
 
 The deployment stack ships a one-shot `cron` service under the `operations`
 Compose profile that runs `python manage.py runcrons`. The host scheduler (a
-crontab entry or systemd timer) runs it on the desired schedule; see
-[PRODUCTION.md](PRODUCTION.md) for the exact command.
+crontab entry or systemd timer) only polls the job; each job's
+`RUN_EVERY_MINS` in `helloworld/cron.py` decides whether it actually executes,
+so a daily poll still yields one run per interval. See [PRODUCTION.md](PRODUCTION.md)
+for the exact command.
 
 ## Manual Execution
 
@@ -20,12 +20,14 @@ docker compose exec app python manage.py runcrons
 In a deployed stack, run the `cron` service through the `operations` profile
 as shown in [PRODUCTION.md](PRODUCTION.md).
 
-Specify `--force` if re-executing a cron job after edits were recently made to it. Django will cache the most recent execution so it is necessary to force the application to look for the updated script. (https://django-cron.readthedocs.io/en/latest/installation.html)
+Specify `--force` if re-executing a cron job after edits were recently made to it. Django will cache the most recent execution so it is necessary to force the application to look for the updated script. (<https://django-cron.readthedocs.io/en/latest/installation.html>)
 
 A cron job will show up successful with a [✔] and unsuccessful with a [✘]
 
-### Successful Output Example:
+### Successful Output Example
+
 (Text generated here originates from the file `cron.py` and the audit script `audit.py`)
+
 ```
 Running Crons
 ========================================
@@ -35,7 +37,7 @@ Audit Complete
 [✔] helloworld.CronAudit
 ```
 
-### Unsuccessful Output Example:
+### Unsuccessful Output Example
 
 ```
 Running Crons
@@ -43,13 +45,13 @@ Running Crons
 [✘] helloworld.CronAudit
 ```
 
-
 ## Debugging
 
 The cron jobs use `logging` as a method to output text and track completions. The logging configuration is listed in `settings.py` under `LOGGING`. If a cron job is not executing and it is unable to provide a traceback:
 
 1. Open the django shell using `docker compose exec app python manage.py shell`
 2. Type in the following:
+
 ```
 
 from django_cron.models import CronJobLog

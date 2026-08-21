@@ -28,7 +28,7 @@ Running `python manage.py audit` generates a CSV file named
         - Entry is missing 'Solution' field (sql_alias: `Solutions`)
 
 
-## Running the command
+## Running the Command
 
 From the repository root, run:
 
@@ -48,10 +48,10 @@ work. See the [Django QuerySet documentation](https://docs.djangoproject.com/en/
 Audit logs are not removed automatically. Retention remains a separate cleanup
 task for the audit-log directory.
 
-### Affected users
+### Affected Users
 The scheduled audit job sends notifications to users with the **Admin** role.
 The recipient logic is in `helloworld/cron.py`. On success, the notification
 includes the generated CSV. Set `AUDIT_RECIPIENT` for an additional recipient;
 it defaults to `EMAIL_USER`, which also supplies the sender address.
-**Developers can set `AUDIT_RECIPIENT` in `.env.docker` to test the
-notification locally.**
+Developers can set `AUDIT_RECIPIENT` in `.env.docker` to test the
+notification locally.

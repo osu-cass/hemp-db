@@ -43,7 +43,7 @@ _A high-level folder structure of hemp-db._
   * `urls.py`: maps different URL paths corresponding views. Documentation [here](https://docs.djangoproject.com/en/5.2/topics/http/urls/).
   * `views.py`: handles HTTP requests by _typically_ querying the database, performing business logic, and responding with templates and corresponding data. Documentation [here](https://docs.djangoproject.com/en/5.1/topics/http/views/).
 
-## Container and deployment files
+## Container and Deployment Files
 * `Dockerfile`: multi-stage build with `development` and `production` targets.
 * `compose.yaml`: local development stack (Django, Percona MySQL, Valkey, Mailpit; optional phpMyAdmin).
 * `compose.deploy.yaml`, `compose.prod.yaml`, `compose.staging.yaml`, `compose.build.yaml`: deployment stacks documented in [PRODUCTION.md](PRODUCTION.md).
