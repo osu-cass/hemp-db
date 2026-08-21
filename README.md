@@ -1,8 +1,7 @@
 # HempDB
 
 ![](https://github.com/osu-cass/hemp-db/actions/workflows/migrate-test-lint.yml/badge.svg)
-![](https://img.shields.io/github/deployments/osu-cass/hemp-db/production?style=flat&logo=vercel&label=vercel)
-![](https://img.shields.io/website?url=https%3A%2F%2Fhempdb.vercel.app&label=HempDB)
+![](https://github.com/osu-cass/hemp-db/actions/workflows/container.yml/badge.svg)
 
 This repository hosts all code and documentation for the HempDB Senior Capstone Project, CS46X at Oregon State University.
 
@@ -16,7 +15,7 @@ This repository hosts all code and documentation for the HempDB Senior Capstone 
 
 ## Project Identity
 
-This web application is intended to aid the Oregon State University Center for Marketing and Consumer Insights in performing market research in the hemp industry. This research is supported by **USDA AFRI SAS Grant# 2021-68012-35957**. To learn more about the project, visit the [About Us](https://hempdb.vercel.app/about/) page.
+This web application is intended to aid the Oregon State University Center for Marketing and Consumer Insights in performing market research in the hemp industry. This research is supported by **USDA AFRI SAS Grant# 2021-68012-35957**. To learn more about the project, visit the [About Us](https://hemp-db.cass.oregonstate.edu/about/) page.
 
 ### People
 
@@ -47,7 +46,10 @@ Previously, collation of industrial hemp companies and stakeholders was done usi
 
 ### Features and Benefits
 
-At its core, HempDB is backed by a relational database for easy and robust data storage and modeling. With user experience in mind, this website makes it easy for researchers to manage the large repository of company data, while also allowing them to share their research with the public. HempDB offers user roles and permissions, change approvals, geographical visualizations, and much more, allowing for better data integrity and market insights for researchers compared to a simple spreadsheet.
+HempDB uses a relational database to store and model company data. It helps
+researchers manage the repository and share their research publicly. User roles
+and permissions, change approvals, geographic visualizations, and audit tools
+support data integrity and market research beyond a shared spreadsheet.
 
 #### Permissions
 
@@ -91,14 +93,14 @@ HempDB aims to bring visibility to the industrial hemp industry. As a result, th
 |:------------------------------------------------------------------------------------------------------:|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------|
 | [![Django](https://skillicons.dev/icons?i=django)](https://www.djangoproject.com/)                     | The frontend and backend of HempDB are constructed using Django. Django has templated frontend interfaces, backend logic written in Python, and more features that HempDB utilizes. | [File Structure](docs/FILES.md), [Django Admin Portal](docs/ADMIN.md#user-management-django-admin-portal ) |
 | [![MySQL](https://skillicons.dev/icons?i=mysql)](https://www.mysql.com/)                               | HempDB uses MySQL to store all of its data. This is the backbone of the application, and it allows for more complex relational data.                                                | [Models](docs/MODELS.md), [MySQL Database](docs/INFRA.md#mysql-database)                                   |
-| [![Vercel](https://skillicons.dev/icons?i=vercel)](https://vercel.com/)                                | The HempDB website is deployed using Vercel, which offers great integration with GitHub.                                                                                            | [Vercel](docs/BUILD.md#vercel), [Website](docs/INFRA.md#website)                                           |
+| [![Docker](https://skillicons.dev/icons?i=docker)](https://www.docker.com/)                            | HempDB is deployed as Docker Compose stacks from images published to GitHub Container Registry.                                                                                     | [Production Deployment](docs/PRODUCTION.md), [Website](docs/INFRA.md#website)                              |
 | [![GitHub Actions](https://skillicons.dev/icons?i=githubactions)](https://github.com/features/actions) | GitHub Actions hosts workflows like continuous integration testing and deploying the documentation site.                                                                            | [GitHub Actions](docs/BUILD.md#github-actions)                                                             |
 
 More technical information, including architecture, local development, and feature documentation, can be found in the [Developer Documentation](https://osu-cass.github.io/hemp-db/) (sourced from the [`docs/`](docs/) directory).
 
 ## Local Development
 
-The local development environment runs Django and its supporting services with Docker Compose. The default stack includes the Django app, Percona Server for MySQL 8.4 LTS, Valkey, and Mailpit. It uses safe local credentials. The first run starts with an empty database and applies migrations automatically.
+The local development environment runs Django and its supporting services with Docker Compose. The default stack includes the Django app, Percona Server for MySQL 8.0 (matching production), Valkey, and Mailpit. It uses safe local credentials. The first run starts with an empty database and applies migrations automatically.
 
 Build and start the default stack:
 
@@ -124,87 +126,135 @@ Open phpMyAdmin at <http://localhost:8081>. No production database, Gmail, or Se
 
 ## Access and Usage
 
-- Instructions for setting up, running, and developing on HempDB are located in [DEVELOP.md](docs/DEVELOP.md).
+- See [DEVELOP.md](docs/DEVELOP.md) for local setup, development commands, and configuration overrides.
+- See [PRODUCTION.md](docs/PRODUCTION.md) for production container configuration and deployment operations.
 - User guides for public users and administrators are located in [USER.md](docs/USER.md) and [ADMIN.md](docs/ADMIN.md) respectively.
 - To submit a bug report or feature request, please create a new issue [here](https://github.com/osu-cass/hemp-db/issues).
 
 ## Service Architecture
 
-### In production
+These diagrams use blue for Docker-managed services, green for external
+services, and dashed edges for optional services or paths.
 
-> **(WIP)** The production architecture is subject to rapid change while the project is being migrated.
-
-<details>
-<summary>
-Expand this dropdown to see the service architecture when working in production.
-</summary>
-
-```mermaid
-flowchart TB
-    subgraph external[External Services]
-        direction LR
-        valkey[Valkey]
-        mysql[MySQL]
-        sentry[Sentry]
-        arcgis["ArcGIS Geocoding<br/>API"]
-        smtp[SMTP Server]
-    end
-
-    subgraph docker[Docker]
-        django[Django App]
-    end
-
-    valkey --- django
-    mysql --- django
-    sentry --- django
-    arcgis --- django
-    smtp --- django
-
-    classDef externalService fill:#111,stroke:#28a745,color:#28a745,stroke-width:2px
-    classDef dockerService fill:#111,stroke:#3fa7ff,color:#3fa7ff,stroke-width:2px
-    class valkey,mysql,sentry,arcgis,smtp externalService
-    class django dockerService
-```
-
-</details>
-
-### In local development
+### Development: `compose.yaml`
 
 <details>
 <summary>
-Expand this dropdown to see the service architecture when working locally.
+Expand this dropdown to see the local service architecture.
 </summary>
 
 ```mermaid
-flowchart TB
-    subgraph external[External Services]
-        direction LR
-        arcgis["ArcGIS Geocoding<br/>API"]
-        maps["OSM and USGS<br/>Map Tiles"]
-        cdn["Fonts and<br/>CDN Assets"]
-    end
-
-    subgraph docker[Docker Compose]
-        direction LR
-        django[Django App]
-        mysql["Percona Server for MySQL 8.4 LTS"]
+flowchart LR
+    subgraph docker["Docker-managed: local development"]
+        app[Django app]
+        mysql["Percona MySQL 8.0"]
         valkey[Valkey]
-        mailpit[Mailpit]
+        mailpit["Mailpit<br/>SMTP 1025 / UI 8025"]
         phpmyadmin["phpMyAdmin<br/>dev-tools profile"]
     end
 
-    mysql --- django
-    valkey --- django
-    mailpit --- django
-    phpmyadmin --- mysql
-    arcgis --- django
-    maps --- django
-    cdn --- django
+    subgraph external["External services used by the app"]
+        maps["Map APIs and tiles"]
+        cdn["Fonts and CDN assets"]
+    end
+
+    mysql --> app
+    valkey --> app
+    mailpit --> app
+    phpmyadmin -. "optional admin UI" .-> mysql
+    maps --> app
+    cdn --> app
 
     classDef externalService fill:#111,stroke:#28a745,color:#28a745,stroke-width:2px
     classDef dockerService fill:#111,stroke:#3fa7ff,color:#3fa7ff,stroke-width:2px
-    class arcgis,maps,cdn externalService
-    class django,mysql,valkey,mailpit,phpmyadmin dockerService
+    class maps,cdn externalService
+    class app,mysql,valkey,mailpit,phpmyadmin dockerService
 ```
 
 </details>
+
+### Staging: `compose.deploy.yaml` + `compose.staging.yaml`
+
+<details>
+<summary>
+Expand this dropdown to see the staging service architecture.
+</summary>
+
+```mermaid
+flowchart LR
+    subgraph docker["Docker-managed: published production image"]
+        migrate["migrate<br/>one-shot gate"]
+        app["Django + Gunicorn<br/>published image (dev)"]
+        cron["cron<br/>operations profile"]
+        valkey["Valkey cache"]
+        mailpit["Mailpit<br/>staging overlay"]
+    end
+
+    subgraph external["External services"]
+        mysql[MySQL]
+        sentry[Sentry]
+        ingress["Existing HTTPS ingress"]
+    end
+
+    migrate --> app
+    migrate --> cron
+    app --> mysql
+    app --> valkey
+    app --> mailpit
+    cron --> mailpit
+    app --> sentry
+    ingress --> app
+
+    classDef externalService fill:#111,stroke:#28a745,color:#28a745,stroke-width:2px
+    classDef dockerService fill:#111,stroke:#3fa7ff,color:#3fa7ff,stroke-width:2px
+    class mysql,sentry,ingress externalService
+    class migrate,app,cron,valkey,mailpit dockerService
+```
+
+</details>
+
+Mailpit is staging-only and its web UI binds to loopback by default. Staging
+has no phpMyAdmin and does not mount a production SMTP secret.
+
+### Production: `compose.deploy.yaml` + `compose.prod.yaml`
+
+<details>
+<summary>
+Expand this dropdown to see the production service architecture.
+</summary>
+
+```mermaid
+flowchart LR
+    subgraph docker["Docker-managed: published production image"]
+        migrate["migrate<br/>one-shot gate"]
+        app["Django + Gunicorn<br/>published image (latest)"]
+        cron["cron<br/>operations profile"]
+        valkey["Valkey cache"]
+    end
+
+    subgraph external["External services"]
+        mysql[MySQL]
+        smtp[SMTP]
+        sentry[Sentry]
+        ingress["Existing HTTPS ingress"]
+    end
+
+    migrate --> app
+    migrate --> cron
+    app --> mysql
+    app --> valkey
+    app --> smtp
+    app --> sentry
+    ingress --> app
+
+    classDef externalService fill:#111,stroke:#28a745,color:#28a745,stroke-width:2px
+    classDef dockerService fill:#111,stroke:#3fa7ff,color:#3fa7ff,stroke-width:2px
+    class mysql,smtp,sentry,ingress externalService
+    class migrate,app,cron,valkey dockerService
+```
+
+</details>
+
+Production runs no Mailpit, phpMyAdmin, or MySQL containers; Valkey runs inside the stack as a disposable cache. The
+environment commands and secret contract are in
+[Deploying HempDB with Docker Compose](docs/PRODUCTION.md).

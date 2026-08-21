@@ -1,10 +1,12 @@
+from pathlib import Path
+
+from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db.models import Q
 from helloworld.models import Company
 from datetime import datetime, timedelta
 from django.utils.timezone import now, localtime
 import pandas as pd
-import os
 
 class Command(BaseCommand):
     help = "Audits companies and flags missing/old data"
@@ -97,8 +99,9 @@ class Command(BaseCommand):
         today = datetime.now().strftime("%Y-%m-%d")
 
         file = f"data_audit_{today}.csv"
-        path = "helloworld/management/commands/auditlogs"
-        file_path = os.path.join("helloworld/management/commands/auditlogs", file)
+        path = Path(settings.AUDIT_LOG_DIR)
+        path.mkdir(parents=True, exist_ok=True)
+        file_path = path / file
 
         df.to_csv(file_path, index=False)
 

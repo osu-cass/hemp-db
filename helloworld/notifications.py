@@ -14,7 +14,7 @@ def email_admins(action: str, company_name: str, pending_change_id: int, request
     action (str): Can only be 'created', 'edited', or 'deleted' depending on the action.
     company_name (str): Name of the company
     pending_change_id (int): ID of the pending change
-    request_host (str): the host that made the request (e.g. 'hempdb.vercel.app')
+    request_host (str): the host that made the request (e.g. 'hemp-db.cass.oregonstate.edu')
     """
 
     # If DEBUG is True, this email will be logged to the console, NOT sent (settings.py)

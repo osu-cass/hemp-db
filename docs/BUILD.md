@@ -1,36 +1,33 @@
-# Build Pipeline
+# Build pipeline
 
-This page contains information on the build pipeline for HempDB and is intended for developers.
+This page describes HempDB's GitHub Actions workflows. Docker staging and
+production operations are documented in [PRODUCTION.md](PRODUCTION.md).
 
 ## GitHub Actions
 
-### CI Workflow
+### CI workflow
 
-The [Django CI workflow](https://github.com/cmciosu/hemp-db/actions/workflows/migrate-test-lint.yml) is configured by the `migrate-test-lint.yml` file. This workflow runs on PRs opened to main. 
+The [Django CI workflow](https://github.com/osu-cass/hemp-db/actions/workflows/migrate-test-lint.yml) is configured by `migrate-test-lint.yml`. It runs on pull requests targeting `main` or `dev`.
 
-Its purpose is to run migrations on the **CI database**, tests, and the lint check. This workflow must pass before a PR is merged to main. Tests are found in `helloworld/tests.py`.
+It builds the development image from `compose.yaml`, runs Ruff, then runs
+migrations and the test suite against ephemeral Percona MySQL and Valkey
+containers — no external database or repository secrets are involved. The
+workflow must pass before a pull request is merged. Tests are in
+`helloworld/tests.py` and the `hempdb/tests/` package.
 
-### Deploy Workflow
+### Container workflow
 
-The [Django Deploy to Prod workflow](https://github.com/cmciosu/hemp-db/actions/workflows/deploy.yml) is configured by the `deploy.yml` file. This workflow runs on pushes (PR merges) to main.
+The `container.yml` workflow has two jobs. `validate` checks the local,
+staging, and production Compose configurations, including the build override.
+`build` builds the production image; same-repo pull requests publish a
+`pr-<number>` tag for pre-merge testing (fork PRs build without publishing),
+pushes to `dev` publish the `dev` tag to GitHub Container Registry, and pushes
+to `main` publish `main` and `latest`. A weekly scheduled run rebuilds both
+branches so published images pick up base-image fixes.
 
-Its purpose is to run migrations on the **production database** as changes are merged into main and deployed to the production Vercel deployment.
+### Pages workflow
 
-### Pages Workflow
-
-The [pages-build-deployment workflow](https://github.com/cmciosu/hemp-db/actions/workflows/pages/pages-build-deployment) deploys the markdown files in `docs/` to this documentation site.
-
-## Vercel
-
-Vercel runs `build.sh` for the build step. For this to pass, just make sure all dependencies are listed in `requirements.txt` and all versions are correct.
-
-Once the Vercel build passes on a PR, Vercel will create a deployment for the PR. This is a site with your changes. The deployment can be visited by clicking the link highlighted below from the PR.
-
-![EER Diagram](images/vercel_preview.png)
-
-Note that these PR deployments are considered Preview deployments and not a Production deployment. As a result, they will use the `DATABASE_URL` environment variable that is associated with the Preview environment (the development database) on Vercel, not Production.
-
-* The Django CI workflow runs `python manage.py migrate --noinput`.
+The [pages-build-deployment workflow](https://github.com/osu-cass/hemp-db/actions/workflows/pages/pages-build-deployment) deploys the markdown files in `docs/` to this documentation site.
 
 ## Migrations
 

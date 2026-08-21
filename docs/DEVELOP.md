@@ -34,7 +34,7 @@ docker compose exec app python manage.py createsuperuser
 | Service | Purpose | Host access |
 | --- | --- | --- |
 | `app` | Django development server and management commands | <http://localhost:8000> |
-| `mysql` | Percona Server for MySQL 8.4 LTS application and test databases | `127.0.0.1:3307` by default |
+| `mysql` | Percona Server for MySQL 8.0 (matching production) application and test databases | `127.0.0.1:3307` by default |
 | `valkey` | Django map cache | Compose network only |
 | `mailpit` | Captures all development email | <http://localhost:8025> |
 | `phpmyadmin` | Optional MySQL administration UI | <http://localhost:8081> |
@@ -84,7 +84,24 @@ The local MySQL-compatible user is allowed to create and remove Django's `test_h
 
 ## Configuration and Ports
 
-`.env.docker` is committed because it contains local-only values. Never reuse its credentials outside this Compose stack. Production and preview deployments continue to use platform-managed environment variables based on `.env.example`.
+`.env.docker` is committed because it contains local-only values. Never reuse
+its credentials outside this Compose stack. The Compose deployment stacks read
+a per-host `.env` (created from `.env.staging.example` or
+`.env.production.example`) with Docker secrets. `.env.example` is a template
+for running `manage.py` outside Docker.
+
+Sentry is disabled locally because `.env.docker` leaves `SENTRY_DSN` empty. To
+enable a non-production Sentry project for one command, set its DSN without
+writing credentials to the repository:
+
+```sh
+SENTRY_DSN='https://example@o0.ingest.sentry.io/0' \
+SENTRY_ENVIRONMENT=development \
+docker compose -f compose.yaml up
+```
+
+Set trace and profile sample rates in the same command when needed. Use a
+development Sentry project and never commit the DSN.
 
 Override published ports or the container user's IDs from the shell when necessary:
 
@@ -111,9 +128,14 @@ docker compose down -v
 
 The next startup recreates an empty database and reapplies all migrations.
 
+If your `mysql_data` volume was created by an earlier Percona Server 8.4
+stack, run `docker compose down -v` once before starting: MySQL cannot open a
+data directory from a newer major version.
+
 ## Dependency and Configuration Changes
 
-- After editing `requirements.txt`, run `docker compose build app` and restart the app service.
-- Add production environment variables to `.env.example` and the deployment platform.
+- After editing a requirements file, run `docker compose build app` and restart the app service.
+- Add shared variables to `.env.example`, `.env.staging.example`, or
+  `.env.production.example` as needed.
 - Add safe, local equivalents to `.env.docker` only when the local stack needs them.
 - Never place real credentials in `.env.docker` or `compose.yaml`.

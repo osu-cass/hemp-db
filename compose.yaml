@@ -1,6 +1,8 @@
+name: hempdb-development
+
 services:
   mysql:
-    image: percona/percona-server:8.4@sha256:01cf1439241e11c5d49312db1b18ee01a5947869c1a1dec18417d88ffaeb5717
+    image: percona/percona-server:8.0
     env_file:
       - .env.docker
     command:
@@ -14,14 +16,16 @@ services:
     healthcheck:
       test:
         - CMD-SHELL
-        - mysqladmin ping --host=localhost --user=root --password="$${MYSQL_ROOT_PASSWORD}" --silent
+        # 127.0.0.1 forces TCP so the init phase's socket-only temporary
+        # server cannot satisfy the check before networking is up.
+        - mysqladmin ping --host=127.0.0.1 --user=root --password="$${MYSQL_ROOT_PASSWORD}" --silent
       interval: 5s
       timeout: 5s
       retries: 20
       start_period: 20s
 
   valkey:
-    image: valkey/valkey:9.1.1-alpine3.24@sha256:ee91f7a174ac4d6a6b0685b3a60e321f0a9dbbb691f9b0e285be2ba1d1be8328
+    image: valkey/valkey:9.1-alpine
     healthcheck:
       test: ["CMD", "valkey-cli", "ping"]
       interval: 5s
@@ -29,19 +33,25 @@ services:
       retries: 10
 
   mailpit:
-    image: axllent/mailpit:latest@sha256:37a38e48e9338cd7e89dfeb487f37b02ebfcd9cb23111bed2d345e79d37d6dd6
+    image: axllent/mailpit:latest
     ports:
       - "127.0.0.1:${MAILPIT_PORT:-8025}:8025"
 
   app:
     build:
       context: .
+      target: development
       args:
         APP_UID: ${APP_UID:-1000}
         APP_GID: ${APP_GID:-1000}
     init: true
     env_file:
       - .env.docker
+    environment:
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-development}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
+      SENTRY_PROFILES_SAMPLE_RATE: ${SENTRY_PROFILES_SAMPLE_RATE:-0.0}
     ports:
       - "127.0.0.1:${APP_PORT:-8000}:8000"
     volumes:
@@ -65,7 +75,7 @@ services:
       start_period: 30s
 
   phpmyadmin:
-    image: phpmyadmin:latest@sha256:b68f318c5fd85541795ed8eb4ced28ea6908a89910871783b3e479cc6c6d1e1b
+    image: phpmyadmin:latest
     profiles: ["dev-tools"]
     environment:
       PMA_HOST: mysql

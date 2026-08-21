@@ -1,7 +1,7 @@
 import logging
-import os
 from pathlib import Path
 from datetime import datetime
+from django.conf import settings
 from django_cron import CronJobBase, Schedule
 from helloworld.management.commands.audit import Command as Audit
 from django.core.mail import EmailMessage
@@ -9,7 +9,7 @@ from django.contrib.auth.models import User, Group
 
 logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parent
-AUDITLOGS_PATH = BASE_DIR / 'management' / 'commands' / 'auditlogs'
+AUDITLOGS_PATH = Path(settings.AUDIT_LOG_DIR)
 
 
 def get_audit_file():
@@ -45,11 +45,9 @@ class CronAudit(CronJobBase):
             # Get list of emails for all users that are some form of admin
         admin_emails = list(User.objects.filter(groups__id__in=admin_group_ids).values_list('email', flat=True).distinct())
 
-        # Pull default sender email address from .env file
-        EMAIL_USER = os.getenv("EMAIL_USER")
-        
-        # Make sure personal email is specified in personal .env file to receive emails from the audit generation on success or failure.
-        AUDIT_RECIPIENT = os.getenv("AUDIT_RECIPIENT")
+        EMAIL_USER = settings.EMAIL_HOST_USER
+        AUDIT_RECIPIENT = settings.AUDIT_RECIPIENT
+        recipients = admin_emails + ([AUDIT_RECIPIENT] if AUDIT_RECIPIENT else [])
 
         try:
             audit = Audit()
@@ -68,9 +66,9 @@ class CronAudit(CronJobBase):
             with open(file_path, 'rb') as file:
                 email = EmailMessage(
                     subject=f"[HempDB] Database Audit Log Generation {filedate}",
-                    body=f"The Database Audit job was successful, the new file created is attached to this message with the name: {auditlog}. The file is available for developers under the directory: hemp-db/helloworld/management/commands/auditlogs.",
+                    body=f"The Database Audit job was successful, the new file created is attached to this message with the name: {auditlog}. The file is stored in the audit log directory: {AUDITLOGS_PATH}.",
                     from_email=EMAIL_USER,
-                    to=admin_emails + [AUDIT_RECIPIENT]
+                    to=recipients
                 )
 
                 email.attach(auditlog, file.read(), 'text/csv')
@@ -85,7 +83,7 @@ class CronAudit(CronJobBase):
                 subject=f"[HempDB] Database Audit Log Failure {filedate}",
                 body=f"The Database Audit job failed. Please alert developers to the status of the audit generation. The following error is:\n\n\n{e}",
                 from_email=EMAIL_USER,
-                to=admin_emails + [AUDIT_RECIPIENT]
+                to=recipients
             )
             email.send()
 

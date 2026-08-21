@@ -6,37 +6,20 @@ on:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
-    strategy:
-      max-parallel: 4
-      matrix:
-        python-version: [3.12]
 
     steps:
     - uses: actions/checkout@v7
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v6
-      with:
-        python-version: ${{ matrix.python-version }}
-    - name: Install Dependencies
+    - name: Match container user to runner
       run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-    - name: Run Migrations (CI DB)
-      run: |
-        python manage.py migrate --noinput
-      env:
-        DATABASE_URL: ${{ secrets.CI_STAGING_DATABASE_URL }}
-        SECRET_KEY: ${{ secrets.SECRET_KEY }}
-        REDIS_URL: ${{ secrets.REDIS_URL }}
-    - name: Run Tests
-      run: |
-        python manage.py test
-      env:
-        DATABASE_URL: ${{ secrets.CI_STAGING_DATABASE_URL }}
-        SECRET_KEY: ${{ secrets.SECRET_KEY }}
-        REDIS_URL: ${{ secrets.REDIS_URL }}
+        echo "APP_UID=$(id -u)" >> "$GITHUB_ENV"
+        echo "APP_GID=$(id -g)" >> "$GITHUB_ENV"
+    - name: Build development image
+      run: docker compose build app
     - name: Lint
-      run: |
-        ruff check .
+      run: docker compose run --rm --no-deps --entrypoint ruff app check --no-cache .
+    - name: Migrate and test
+      run: docker compose run --rm app python manage.py test
+    - name: Clean up
+      if: always()
+      run: docker compose down -v

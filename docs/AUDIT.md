@@ -2,12 +2,13 @@
 
 ## Overview
 
-The auditing functionality as of Spring 2025 is done through the terminal. The relevant files are under `helloworld/management/`:
+The audit command runs through the terminal. It is implemented in
+`helloworld/management/commands/audit.py`. Audit logs are written to
+`AUDIT_LOG_DIR`, which defaults to
+`helloworld/management/commands/auditlogs/` in local development.
 
-Script: `admin.py`
-List of past audit logs: `auditlogs/`
-
-Running the script `admin.py` will generate a .csv file with the name: `data_audit_YYYY_MM_DD` with the current day in YYYY_MM_DD format. The .csv file will have three different columns: 
+Running `python manage.py audit` generates a CSV file named
+`data_audit_YYYY-MM-DD.csv` for the current day. The CSV contains three columns:
 
 1. **id**
     * The integer id of the company in the database
@@ -27,22 +28,30 @@ Running the script `admin.py` will generate a .csv file with the name: `data_aud
         - Entry is missing 'Solution' field (sql_alias: `Solutions`)
 
 
-## Running the Script
+## Running the command
 
-To execute the command in the terminal:
+From the repository root, run:
 
-* Enter the root directory `hemp-db`
-* Run `python manage.py audit`
+```sh
+python manage.py audit
+```
 
 
 ## Limitations
 
-* Performance
-The script takes a very long time to evaluate due to the volume of data in the database and querying relational items to each entry. It is difficult to get an idea of the progress for the script's completion due to the nature of querysets in Django: https://docs.djangoproject.com/en/5.2/ref/models/querysets/
+### Performance
+The command can take a long time because it queries related records for each
+database entry. Django does not provide progress information for this queryset
+work. See the [Django QuerySet documentation](https://docs.djangoproject.com/en/5.2/ref/models/querysets/).
 
-* Logging
-The audit logs will not be automatically removed. This is a future addition that would ideally be completed at the same time that automating the auditing process through CRON jobs would be implemented.
+### Logging
+Audit logs are not removed automatically. Retention remains a separate cleanup
+task for the audit-log directory.
 
-* Affected Users
-On success or failure, the script will be emailed to people listed with the **'Admin'** role in the Django application. This can be modified further in `hemp-db/helloworld/cron.py` in a parameter of the email generation. On success, an email notification that contains the newly-generated .csv file will be sent to administrators and specific developers. **Developers interested in testing this email notification locally should include their email address in the .env file under 'AUDIT_RECIPIENT'**
-
+### Affected users
+The scheduled audit job sends notifications to users with the **Admin** role.
+The recipient logic is in `helloworld/cron.py`. On success, the notification
+includes the generated CSV. Set `AUDIT_RECIPIENT` for an additional recipient;
+it defaults to `EMAIL_USER`, which also supplies the sender address.
+**Developers can set `AUDIT_RECIPIENT` in `.env.docker` to test the
+notification locally.**

@@ -2,16 +2,25 @@
 
 ### This document contains information on the Cron Job configuration and limitations for HempDB
 
-Cron jobs are meant to streamline simple, repetitive tasks. They are set up using `django-cron` (https://django-cron.readthedocs.io/en/latest/) as opposed to Vercel Functions to reduce costs warranted by extended compute usage. 
+Cron jobs are meant to streamline simple, repetitive tasks. They are set up using `django-cron` (https://django-cron.readthedocs.io/en/latest/).
 
-The jobs are not automated yet, the next steps to automate cron jobs in this application involve exposing a secure API endpoint that an external server or service can utilize to trigger the cron job executions from the command line.
-
+The deployment stack ships a one-shot `cron` service under the `operations`
+Compose profile that runs `python manage.py runcrons`. The host scheduler (a
+crontab entry or systemd timer) runs it on the desired schedule; see
+[PRODUCTION.md](PRODUCTION.md) for the exact command.
 
 ## Manual Execution
 
-Navigate to the app home directory `hemp-db`
+In local development, run the jobs inside the app container:
 
-Run `python manage.py runcrons`. Specify `--force` if re-executing a cron job after edits were recently made to it. Django will cache the most recent execution so it is necessary to force the application to look for the updated script. (https://django-cron.readthedocs.io/en/latest/installation.html)
+```sh
+docker compose exec app python manage.py runcrons
+```
+
+In a deployed stack, run the `cron` service through the `operations` profile
+as shown in [PRODUCTION.md](PRODUCTION.md).
+
+Specify `--force` if re-executing a cron job after edits were recently made to it. Django will cache the most recent execution so it is necessary to force the application to look for the updated script. (https://django-cron.readthedocs.io/en/latest/installation.html)
 
 A cron job will show up successful with a [✔] and unsuccessful with a [✘]
 
@@ -39,7 +48,7 @@ Running Crons
 
 The cron jobs use `logging` as a method to output text and track completions. The logging configuration is listed in `settings.py` under `LOGGING`. If a cron job is not executing and it is unable to provide a traceback:
 
-1. Open the django shell from the home `hemp-db` directory using `python manage.py shell`
+1. Open the django shell using `docker compose exec app python manage.py shell`
 2. Type in the following:
 ```
 
