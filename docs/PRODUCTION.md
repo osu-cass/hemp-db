@@ -15,7 +15,7 @@ below.
 | `compose.yaml` | Local development | Django, Percona MySQL, Valkey, Mailpit; optional phpMyAdmin |
 | `compose.deploy.yaml` | Shared deployment base | Migration gate, Django production image, Valkey cache, optional cron |
 | `compose.prod.yaml` | Production overlay | Production project name and env wiring |
-| `compose.staging.yaml` | Staging overlay | Staging project name and loopback Mailpit |
+| `compose.staging.yaml` | Staging overlay | Staging project name and Mailpit |
 | `compose.build.yaml` | Local build override | Builds and tags `hempdb:local-production` |
 
 The deployment base has no `build:` section. Production defaults to
@@ -99,8 +99,8 @@ Stable deployment values are kept out of the example files. The production
 overlay binds the app to loopback port `8000`; it and the shared base default
 to `DEBUG=false`, verified database TLS, secure cookies, HTTPS proxy handling,
 HSTS settings, and an audit log directory at
-`/var/lib/hempdb/auditlogs`. Staging fixes its loopback app port at `8001` and
-Mailpit UI port at `8025`.
+`/var/lib/hempdb/auditlogs`. Staging publishes the app and Mailpit UI on host
+ports `APP_PORT`/`MAILPIT_PORT` (default `8001`/`8025`).
 
 These variables are optional overrides:
 
@@ -127,7 +127,7 @@ Staging (`hemp-db-staging.cass.oregonstate.edu`) tracks
 `ghcr.io/osu-cass/hemp-db:dev`, published on every push to `dev`. Deploying
 means pulling the refreshed tag and restarting the stack; Chef does this on
 its regular runs when the image or configuration changes. The overlay adds
-Mailpit, whose web UI binds to loopback:
+Mailpit for catching outbound mail:
 
 ```sh
 docker compose -f compose.deploy.yaml -f compose.staging.yaml config --quiet
@@ -136,8 +136,11 @@ docker compose -f compose.deploy.yaml -f compose.staging.yaml up --detach --wait
 ```
 
 The app and cron containers use `mailpit:1025` with TLS and credentials
-disabled. The staging Mailpit UI is reachable only from the host at
-<http://127.0.0.1:8025> until an ingress/access path is agreed.
+disabled. The app and Mailpit publish host ports set by `APP_PORT` and
+`MAILPIT_PORT` in `.env` (Chef sets `8094`/`8095`, inside the app host's
+firewall range for load balancer traffic; they default to `8001`/`8025`).
+The load balancer routes `https://hemp-db-staging.cass.oregonstate.edu`
+to the app and its `/mailpit` path to the Mailpit UI.
 
 ## Production
 
