@@ -43,6 +43,8 @@ from django.contrib.contenttypes.models import ContentType
 from django.forms.models import model_to_dict
 from django.contrib import messages
 from django.http import HttpResponse, HttpRequest
+from django.core.exceptions import PermissionDenied
+from django.views.decorators.http import require_POST
 from django.utils.http import urlsafe_base64_decode
 from django.utils.encoding import force_str
 from django.contrib.auth.tokens import default_token_generator
@@ -60,6 +62,20 @@ from django.db import models
 
 # Used for Pagination Bar on /companies
 PAGE_INDEX=['A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z','0','1','2','3','4','5','6','7','8','9']
+
+
+def _require_permission(request: HttpRequest, permission: str) -> None:
+    """Raise HTTP 403 unless the current user has the named app permission."""
+    if not request.user.has_perm(f"helloworld.{permission}"):
+        raise PermissionDenied
+
+
+def _require_view_or_add_permission(
+    request: HttpRequest, add_permission: str, view_permission: str
+) -> None:
+    """Require the add permission for POSTs and view permission otherwise."""
+    permission = add_permission if request.method == "POST" else view_permission
+    _require_permission(request, permission)
 
 @staff_member_required
 def upload_wizard(request: HttpRequest) -> HttpResponse:
@@ -285,6 +301,8 @@ def companies(request: HttpRequest) -> HttpResponse:
     Returns:
     response (HttpResponse): HTTP response containing companies page template, PendingCompanyForm, SearchForm
     """
+    _require_view_or_add_permission(request, 'add_pendingcompany', 'view_company')
+
     try:
         page = int(request.GET.get('page', 1))
         page = page if abs(page) < len(PAGE_INDEX)+1 else 1
@@ -563,6 +581,7 @@ def view_company_pending(request: HttpRequest, id: int) -> HttpResponse:
     return render(request, 'company_view_pending.html', {'context': context, 'change': obj})
 
 @staff_member_required
+@require_POST
 def view_company_approve(_request: HttpRequest, id: int) -> HttpResponse:
     """
     Staff Route. Handles approval of a PendingChange for companies
@@ -620,6 +639,7 @@ def view_company_approve(_request: HttpRequest, id: int) -> HttpResponse:
     return redirect('/changes')
 
 @staff_member_required
+@require_POST
 def view_company_reject(_request: HttpRequest, id: int) -> HttpResponse:
     """
     Staff Route. Triggered when admin clicks "Reject" in company_view_pending
@@ -726,6 +746,7 @@ def companies_filtered(request: HttpRequest) -> HttpResponse:
                                               })
 
 @staff_member_required
+@require_POST
 def remove_companies(request: HttpRequest, id: int) -> HttpResponse:
     """
     Staff Route. Adds deletion to PendingChanges
@@ -797,7 +818,6 @@ def export_companies(request: HttpRequest) -> HttpResponse:
 
     return response
 
-@permission_required("helloworld.view_category")
 def categories(request: HttpRequest) -> HttpResponse:
     """
     Protected Route. Shows all categories from Category table
@@ -809,6 +829,8 @@ def categories(request: HttpRequest) -> HttpResponse:
     Returns:
     response (HttpResponse): HTTP response containing category data
     """
+    _require_view_or_add_permission(request, 'add_category', 'view_category')
+
     categories = Category.objects.all()
     if request.method == 'POST':
         form = CategoryForm(request.POST)
@@ -821,6 +843,7 @@ def categories(request: HttpRequest) -> HttpResponse:
     return render(request, 'categories.html', {'form': form, 'data': categories, 'type': 'category', 'delete_url': 'remove_categories'})
 
 @staff_member_required
+@require_POST
 def remove_categories(_request: HttpRequest, id: int) -> HttpResponse:
     """
     Staff Route. Removes a category
@@ -859,7 +882,6 @@ def export_categories(_request: HttpRequest) -> HttpResponse:
 
     return response
 
-@permission_required("helloworld.view_solution")
 def solutions(request: HttpRequest) -> HttpResponse:
     """
     Protected Route. Shows all solutions from Solution table
@@ -871,6 +893,8 @@ def solutions(request: HttpRequest) -> HttpResponse:
     Returns:
     response (HttpResponse): HTTP response containing solution data
     """
+    _require_view_or_add_permission(request, 'add_solution', 'view_solution')
+
     solutions = Solution.objects.all()
     if request.method == 'POST':
         form = SolutionForm(request.POST)
@@ -883,6 +907,7 @@ def solutions(request: HttpRequest) -> HttpResponse:
     return render(request, 'solutions.html', {'form': form, 'data': solutions, 'type': 'solution', 'delete_url': 'remove_solutions'})
 
 @staff_member_required
+@require_POST
 def remove_solutions(_request: HttpRequest, id: int):
     """
     Staff Route. Removes a solution
@@ -921,7 +946,6 @@ def export_solutions(_request: HttpRequest) -> HttpResponse:
 
     return response
 
-@permission_required("helloworld.view_stakeholdergroups")
 def StakeholderGroups(request: HttpRequest) -> HttpResponse:
     """
     Protected Route. Shows all entries from stakeholderGroups table
@@ -933,6 +957,10 @@ def StakeholderGroups(request: HttpRequest) -> HttpResponse:
     Returns:
     response (HttpResponse): HTTP response containing stakeholderGroups data
     """
+    _require_view_or_add_permission(
+        request, 'add_stakeholdergroups', 'view_stakeholdergroups'
+    )
+
     groups = stakeholderGroups.objects.all()
     if request.method == 'POST':
         form = stakeholderGroupsForm(request.POST)
@@ -945,6 +973,7 @@ def StakeholderGroups(request: HttpRequest) -> HttpResponse:
     return render(request, 'stakeholderGroups.html', {'form': form, 'type': 'stakeholderGroup', 'data': groups, 'delete_url': 'remove_stakeholder_groups' })
 
 @staff_member_required
+@require_POST
 def remove_stakeholder_groups(_request: HttpRequest, id: int) -> HttpResponse:
     """
     Staff Route. Removes a stakeholderGroups
@@ -983,7 +1012,6 @@ def export_stakeholder_groups(_request: HttpRequest) -> HttpResponse:
 
     return response
 
-@permission_required("helloworld.view_stage")
 def stages(request: HttpRequest) -> HttpResponse:
     """
     Protected Route. Shows all entries from Stage table
@@ -995,6 +1023,8 @@ def stages(request: HttpRequest) -> HttpResponse:
     Returns:
     response (HttpResponse): HTTP response containing Stage data
     """
+    _require_view_or_add_permission(request, 'add_stage', 'view_stage')
+
     stages = Stage.objects.all()
     if request.method == 'POST':
         form = StageForm(request.POST)
@@ -1007,6 +1037,7 @@ def stages(request: HttpRequest) -> HttpResponse:
     return render(request, 'stages.html', {'form': form, 'data': stages, 'type': 'stage', 'delete_url': 'remove_stages'})
 
 @staff_member_required
+@require_POST
 def remove_stages(_request: HttpRequest, id: int) -> HttpResponse:
     """
     Staff Route. Removes a Stage
@@ -1045,7 +1076,6 @@ def export_stages(_request: HttpRequest) -> HttpResponse:
 
     return response
 
-@permission_required("helloworld.view_productgroup")
 def productGroups(request: HttpRequest) -> HttpResponse:
     """
     Protected Route. Shows all entries from productGroup table
@@ -1057,6 +1087,10 @@ def productGroups(request: HttpRequest) -> HttpResponse:
     Returns:
     response (HttpResponse): HTTP response containing productGroup data
     """
+    _require_view_or_add_permission(
+        request, 'add_productgroup', 'view_productgroup'
+    )
+
     groups = ProductGroup.objects.all()
     if request.method == 'POST':
         form = ProductGroupForm(request.POST)
@@ -1069,6 +1103,7 @@ def productGroups(request: HttpRequest) -> HttpResponse:
     return render(request, 'productGroups.html', {'form': form, 'data': groups, 'type': 'productGroups', 'delete_url': 'remove_product_group'})
 
 @staff_member_required
+@require_POST
 def remove_product_groups(_request: HttpRequest, id: int) -> HttpResponse:
     """
     Staff Route. Removes a ProductGroup
@@ -1107,7 +1142,6 @@ def export_product_groups(_request: HttpRequest) -> HttpResponse:
 
     return response
 
-@permission_required("helloworld.view_status")
 def status(request: HttpRequest) -> HttpResponse:
     """
     Protected Route. Shows all entries from Status table
@@ -1119,6 +1153,8 @@ def status(request: HttpRequest) -> HttpResponse:
     Returns:
     response (HttpResponse): HTTP response containing Status data
     """
+    _require_view_or_add_permission(request, 'add_status', 'view_status')
+
     status = Status.objects.all()
     if request.method == 'POST':
         form = StatusForm(request.POST)
@@ -1131,6 +1167,7 @@ def status(request: HttpRequest) -> HttpResponse:
     return render(request, 'status.html', {'form': form, 'data': status, 'type': 'status', 'delete_url': 'remove_status'})
 
 @staff_member_required
+@require_POST
 def remove_status(_request: HttpRequest, id: int) -> HttpResponse:
     """
     Staff Route. Removes a Status
@@ -1169,7 +1206,6 @@ def export_status(_request: HttpRequest) -> HttpResponse:
 
     return response
 
-@permission_required("helloworld.view_grower")
 def grower(request: HttpRequest) -> HttpResponse:
     """
     Protected Route. Shows all entries from Grower table
@@ -1181,6 +1217,8 @@ def grower(request: HttpRequest) -> HttpResponse:
     Returns:
     response (HttpResponse): HTTP response containing Grower data
     """
+    _require_view_or_add_permission(request, 'add_grower', 'view_grower')
+
     growers = Grower.objects.all()
     if request.method == 'POST':
         form = GrowerForm(request.POST)
@@ -1193,6 +1231,7 @@ def grower(request: HttpRequest) -> HttpResponse:
     return render(request, 'grower.html', {'form': form, 'data': growers, 'delete_url': 'remove_grower', 'type': 'grower'})
 
 @staff_member_required
+@require_POST
 def remove_grower(_request: HttpRequest, id: int) -> HttpResponse:
     """
     Staff Route. Removes a Grower
@@ -1231,7 +1270,6 @@ def export_grower(_request: HttpRequest) -> HttpResponse:
 
     return response
 
-@permission_required("helloworld.view_industry")
 def industry(request: HttpRequest) -> HttpResponse:
     """
     Protected Route. Shows all entries from Industry table
@@ -1243,6 +1281,8 @@ def industry(request: HttpRequest) -> HttpResponse:
     Returns:
     response (HttpResponse): HTTP response containing Industry data
     """
+    _require_view_or_add_permission(request, 'add_industry', 'view_industry')
+
     industries = Industry.objects.all()
     if request.method == 'POST':
         form = IndustryForm(request.POST)
@@ -1255,6 +1295,7 @@ def industry(request: HttpRequest) -> HttpResponse:
     return render(request, 'industry.html', {'form': form, 'data': industries, 'type': 'industries', 'delete_url': 'remove_industry'})
 
 @staff_member_required
+@require_POST
 def remove_industry(_request: HttpRequest, id: int) -> HttpResponse:
     """
     Staff Route. Removes an Industry
@@ -1450,6 +1491,7 @@ def map(request: HttpRequest) -> HttpResponse:
     return render(request, 'map.html', {'companies': processed_companies, 'filters': filter_options})
 
 @staff_member_required
+@require_POST
 def remove_resource(request: HttpRequest, id: int) -> HttpResponse:
     """
     Staff Route. Delete a resource from the Resources table
