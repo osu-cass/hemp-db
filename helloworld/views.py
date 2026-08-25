@@ -670,6 +670,8 @@ def companies_filtered(request: HttpRequest) -> HttpResponse:
     Returns:
     response (HttpResponse): HTTP response containing company page template and filtered company data
     """
+    _require_permission(request, "view_company")
+
     query = None
     companies = Company.objects.select_related('Industry', 'Status').prefetch_related('Solutions', 'Category', 'stakeholderGroup', 'productGroup', 'Stage')
 
