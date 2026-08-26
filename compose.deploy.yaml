@@ -2,7 +2,6 @@ x-app-environment: &app-environment
   SECRET_KEY_FILE: /run/secrets/django_secret_key
   DATABASE_URL_FILE: /run/secrets/database_url
   REDIS_URL: redis://valkey:6379/0
-  MYSQL_ATTR_SSL_CA: /run/secrets/database_ca
   PRODUCTION_URL: "${PRODUCTION_URL:?Set PRODUCTION_URL in the environment file}"
   DEBUG: "${DEBUG:-false}"
   DATABASE_SSL: "${DATABASE_SSL:-true}"
@@ -19,7 +18,6 @@ x-app-environment: &app-environment
 x-app-secrets: &app-secrets
   - django_secret_key
   - database_url
-  - database_ca
 
 x-logging: &default-logging
   driver: json-file
@@ -117,8 +115,6 @@ secrets:
     file: ${SECRET_KEY_PATH:?Set SECRET_KEY_PATH in the environment file}
   database_url:
     file: ${DATABASE_URL_PATH:?Set DATABASE_URL_PATH in the environment file}
-  database_ca:
-    file: ${DATABASE_CA_PATH:?Set DATABASE_CA_PATH in the environment file}
 
 volumes:
   audit_logs:

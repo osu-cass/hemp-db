@@ -18,8 +18,9 @@ deployment stacks and the Chef-owned host responsibilities.
 
 The data is stored in a Percona Server for MySQL 8.0 master/master cluster
 managed by the OSU Open Source Lab, external to the Compose stacks. The
-application connects with the `DATABASE_URL` Docker secret over TLS, verified
-against the CA certificate provided by the `database_ca` secret. Local
+application connects with the `DATABASE_URL` Docker secret over TLS. The
+cluster serves a publicly signed certificate, so it is verified against the
+system CA store with hostname checking and needs no CA secret. Local
 development runs the same Percona Server 8.0 as a container.
 
 ## Cache

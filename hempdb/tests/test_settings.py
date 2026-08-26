@@ -56,11 +56,11 @@ class EnvironmentValueTests(SimpleTestCase):
         self.assertEqual(database['NAME'], 'file_database')
 
     def test_database_ssl_uses_explicit_ca(self):
-        """Verify the database hostname against the configured CA."""
+        """Verify the database hostname against an explicitly configured CA."""
         self.assertEqual(
-            database_ssl_options('/run/secrets/database_ca'),
+            database_ssl_options('/etc/ssl/private-ca.pem'),
             {
-                'ca': '/run/secrets/database_ca',
+                'ca': '/etc/ssl/private-ca.pem',
                 'check_hostname': True,
             },
         )
