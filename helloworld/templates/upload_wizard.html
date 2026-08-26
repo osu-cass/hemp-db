@@ -6,6 +6,10 @@
 
 {% block content %}
   {% if data %}  
+    <p>
+      Showing {{ data.start_index }}-{{ data.end_index }} of {{ data.paginator.count }} staged companies
+    </p>
+
     <table class="table table-striped table-sm">
       <thead>
         <tr>
@@ -16,12 +20,38 @@
       <tbody>
         {% for row in data %}
           <tr class="{% if row.duplicate %} table-danger {% else %} table-success {% endif %}">
-            <td>{{ row.company.Name }}</td>
+            <td>{{ row.Name }}</td>
             <td>{{ row.duplicate }}</td>
           </tr>
         {% endfor %}
       </tbody>
     </table>
+
+    {% if data.has_other_pages %}
+      <nav aria-label="Upload preview pages">
+        <ul class="pagination">
+          {% if data.has_previous %}
+            <li class="page-item">
+              <a class="page-link" href="?page=1">First</a>
+            </li>
+            <li class="page-item">
+              <a class="page-link" href="?page={{ data.previous_page_number }}">Previous</a>
+            </li>
+          {% endif %}
+          <li class="page-item disabled">
+            <span class="page-link">Page {{ data.number }} of {{ data.paginator.num_pages }}</span>
+          </li>
+          {% if data.has_next %}
+            <li class="page-item">
+              <a class="page-link" href="?page={{ data.next_page_number }}">Next</a>
+            </li>
+            <li class="page-item">
+              <a class="page-link" href="?page={{ data.paginator.num_pages }}">Last</a>
+            </li>
+          {% endif %}
+        </ul>
+      </nav>
+    {% endif %}
 
     <form action="/upload_wizard" method="POST"> 
       {% csrf_token %}
