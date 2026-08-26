@@ -1,15 +1,17 @@
 """Focused tests for spreadsheet parsing and atomic company imports."""
 
+from inspect import unwrap
 from unittest.mock import patch
 
 import pandas as pd
+from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError, connection
-from django.test import SimpleTestCase, TestCase
+from django.test import RequestFactory, SimpleTestCase, TestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
-from .models import Grower, Industry, PendingCompany, Status, UploadIndex
+from .models import Company, Grower, Industry, PendingCompany, Status, UploadIndex
 from .upload import (
     IMPORT_BATCH_SIZE,
     UploadValidationError,
@@ -17,6 +19,7 @@ from .upload import (
     read_upload_dataframe,
     validate_upload_columns,
 )
+from .views import upload_wizard
 
 
 class UploadParsingTests(SimpleTestCase):
@@ -66,6 +69,76 @@ class UploadParsingTests(SimpleTestCase):
             "The upload is missing required columns: Country, Grower, Industry, Status.",
         ):
             validate_upload_columns(dataframe)
+
+
+class UploadWizardTests(TestCase):
+    """Keep the staged-company preview bounded and query-efficient."""
+
+    def setUp(self):
+        """Create a staff request factory for direct view measurements."""
+        self.user = get_user_model().objects.create_user(
+            username="staff",
+            password="password",
+            is_staff=True,
+        )
+        self.user.get_all_permissions()
+        self.factory = RequestFactory()
+
+    def _stage(self, name):
+        """Stage one company and add it to the upload index."""
+        company = PendingCompany.objects.create(
+            SrcKey="",
+            Name=name,
+            Address="",
+            Country="USA",
+        )
+        UploadIndex.objects.create(pendingID=str(company.pk))
+        return company
+
+    def _get_wizard(self, page=None):
+        """Render a wizard page as a staff user."""
+        path = "/upload_wizard" if page is None else f"/upload_wizard?page={page}"
+        request = self.factory.get(path)
+        request.user = self.user
+        return unwrap(upload_wizard)(request)
+
+    def test_marks_duplicates_with_constant_query_count(self):
+        """Compute duplicate flags without one query per staged row."""
+        Company.objects.create(
+            SrcKey="",
+            Name="Duplicate",
+            Address="",
+            Country="USA",
+        )
+        self._stage("Duplicate")
+        self._stage("Unique")
+
+        with self.assertNumQueries(2):
+            response = self._get_wizard()
+
+        content = response.content.decode()
+        self.assertContains(response, "Duplicate")
+        self.assertContains(response, "Unique")
+        self.assertIn("table-danger", content)
+        self.assertIn("table-success", content)
+
+    def test_paginates_large_staged_uploads(self):
+        """Render at most 100 staged companies on each wizard page."""
+        for number in range(101):
+            self._stage(f"Company {number:03}")
+
+        with self.assertNumQueries(2):
+            first_page = self._get_wizard()
+        with self.assertNumQueries(2):
+            second_page = self._get_wizard(page=2)
+
+        self.assertContains(first_page, "Company 000")
+        self.assertContains(first_page, "Company 099")
+        self.assertNotContains(first_page, "Company 100")
+        self.assertContains(first_page, "Showing 1-100 of 101 staged companies")
+        self.assertContains(second_page, "Company 100")
+        self.assertNotContains(second_page, "Company 000")
+        self.assertContains(second_page, "Showing 101-101 of 101 staged companies")
 
 
 class CompanyImportTestBase(TestCase):

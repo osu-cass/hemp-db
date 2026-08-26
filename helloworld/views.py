@@ -54,6 +54,7 @@ from django.utils.http import urlsafe_base64_decode
 from django.utils.encoding import force_str
 from django.contrib.auth.tokens import default_token_generator
 from django.core.cache import cache
+from django.core.paginator import Paginator
 from django.conf import settings
 
 import csv
@@ -67,6 +68,7 @@ from django.db import models
 # Used for Pagination Bar on /companies
 PAGE_INDEX=['A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z','0','1','2','3','4','5','6','7','8','9']
 logger = logging.getLogger(__name__)
+UPLOAD_WIZARD_PAGE_SIZE = 100
 
 
 def _require_permission(request: HttpRequest, permission: str) -> None:
@@ -94,8 +96,8 @@ def upload_wizard(request: HttpRequest) -> HttpResponse:
     Returns:
     response (HttpResponse): HTTP response redirecting to companies page table
     """
-    index = UploadIndex.objects.all().values_list("pendingID")
-    companies = PendingCompany.objects.filter(pk__in = index)
+    index = UploadIndex.objects.values_list("pendingID", flat=True)
+    companies = PendingCompany.objects.filter(pk__in=index).order_by("pk")
     message = ""
     if request.method == "POST":
         # Add all companies
@@ -128,15 +130,15 @@ def upload_wizard(request: HttpRequest) -> HttpResponse:
         UploadIndex.objects.all().delete()
         messages.info(request, message)
         return redirect("/companies")
-    data = []
-    for company in companies:
-        record = {}
-        record["company"] = company
-        dup = Company.objects.filter(Name = company.Name).all()
-        record["duplicate"] = True if dup else False
-        data.append(record)
+    duplicate = Company.objects.filter(Name=models.OuterRef("Name"))
+    preview = companies.annotate(
+        duplicate=models.Exists(duplicate),
+    ).only("Name")
+    page = Paginator(preview, UPLOAD_WIZARD_PAGE_SIZE).get_page(
+        request.GET.get("page")
+    )
 
-    return render(request, "upload_wizard.html", {"data": data})
+    return render(request, "upload_wizard.html", {"data": page})
 
 @staff_member_required
 def upload_file(request: HttpRequest) -> HttpResponse:
