@@ -125,7 +125,7 @@ changes.
 
 ## Staging
 
-Staging (`hemp-db-staging.cass.oregonstate.edu`) tracks
+Staging (`hempdb-staging.cass.oregonstate.edu`) tracks
 `ghcr.io/osu-cass/hemp-db:dev`, published on every push to `dev`. Deploying
 means pulling the refreshed tag and restarting the stack; Chef does this on
 its regular runs when the image or configuration changes. The overlay adds
@@ -141,12 +141,12 @@ The app and cron containers use `mailpit:1025` with TLS and credentials
 disabled. The app and Mailpit publish host ports set by `APP_PORT` and
 `MAILPIT_PORT` in `.env` (Chef sets `8094`/`8095`, inside the app host's
 firewall range for load balancer traffic; they default to `8001`/`8025`).
-The load balancer routes `https://hemp-db-staging.cass.oregonstate.edu`
+The load balancer routes `https://hempdb-staging.cass.oregonstate.edu`
 to the app and its `/mailpit` path to the Mailpit UI.
 
 ## Production
 
-Production (`hemp-db.cass.oregonstate.edu`) tracks
+Production (`hempdb.cass.oregonstate.edu`) tracks
 `ghcr.io/osu-cass/hemp-db:latest`, published on every push to `main`. Set
 `HEMPDB_IMAGE` in `.env` only to pin a specific tag, such as for a rollback.
 Validate and start the production overlay:

@@ -8,8 +8,8 @@ The website runs as Docker Compose stacks on hosts managed by the OSU Open
 Source Lab through the `osl-app` Chef cookbook. Images are published to GitHub
 Container Registry at `ghcr.io/osu-cass/hemp-db`: pushes to the `dev` branch
 publish the `dev` tag used by staging
-(`hemp-db-staging.cass.oregonstate.edu`); pushes to `main` publish `main` and
-`latest`, used by production (`hemp-db.cass.oregonstate.edu`). TLS termination
+(`hempdb-staging.cass.oregonstate.edu`); pushes to `main` publish `main` and
+`latest`, used by production (`hempdb.cass.oregonstate.edu`). TLS termination
 and ingress are handled by OSL-managed HAProxy in front of the
 loopback-bound app containers. See [PRODUCTION.md](PRODUCTION.md) for the
 deployment stacks and the Chef-owned host responsibilities.
