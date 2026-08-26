@@ -1,6 +1,12 @@
+from unittest.mock import patch
+
+from django.contrib.auth import get_user_model
 from django.test import TestCase
+from django.urls import reverse
+
 from .models import Company
 from .models import PendingCompany
+from .models import PendingChanges
 from .models import Category
 from .models import Solution
 from .models import stakeholderGroups
@@ -294,3 +300,56 @@ class PendingCompanyTestCase(TestCase):
         self.assertTrue(c1)
         self.assertTrue(c2)
 
+
+class CompanyEditTestCase(TestCase):
+    """Verify company edits create pending changes."""
+
+    def setUp(self):
+        """Create a staff user and an existing company."""
+        self.user = get_user_model().objects.create_user(
+            username="editor",
+            password="test-password",
+            is_staff=True,
+        )
+        self.industry = Industry.objects.create(industry="Test industry")
+        self.status = Status.objects.create(status="Active")
+        self.grower = Grower.objects.create(grower="Test grower")
+        self.company = Company.objects.create(
+            SrcKey="TEST",
+            Name="Original company",
+            Industry=self.industry,
+            Status=self.status,
+            Grower=self.grower,
+            Address="",
+            City="",
+            State="",
+            Country="USA",
+        )
+        self.client.force_login(self.user)
+
+    @patch("helloworld.views.email_admins")
+    def test_edit_copies_only_shared_company_fields(self, email_admins):
+        """Exclude pending-only fields when creating an edit request."""
+        response = self.client.post(
+            reverse("edit-company", args=[self.company.pk]),
+            {
+                "Name": "Edited company",
+                "Industry": self.industry.pk,
+                "Status": self.status.pk,
+                "Grower": self.grower.pk,
+                "Country": "USA",
+                "dateCreated": self.company.dateCreated.isoformat(),
+            },
+        )
+
+        self.assertRedirects(response, "/companies", fetch_redirect_response=False)
+        pending_change = PendingChanges.objects.get(company=self.company)
+        pending_company = pending_change.pending_company
+        self.assertEqual(pending_change.changeType, "edit")
+        self.assertEqual(pending_change.author, self.user)
+        self.assertEqual(pending_company.Name, "Edited company")
+        self.assertIsNone(pending_company.import_batch_id)
+
+        self.company.refresh_from_db()
+        self.assertEqual(self.company.Name, "Original company")
+        email_admins.assert_called_once()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 import zipfile
 
 import pandas as pd
@@ -20,7 +21,14 @@ FOREIGN_KEY_MODELS = {
     "Industry": Industry,
     "Grower": Grower,
 }
-EXCLUDED_MODEL_FIELDS = frozenset({"id", "dateCreated", "lastUpdated"})
+EXCLUDED_MODEL_FIELDS = frozenset({"id", "dateCreated", "lastUpdated", "import_batch_id"})
+IMPORT_BATCH_SIZE = 500
+
+SPREADSHEET_FIELDS = frozenset(
+    field.name
+    for field in PendingCompany._meta.concrete_fields
+    if field.name not in EXCLUDED_MODEL_FIELDS
+)
 
 
 def _reset_file(uploaded_file):
@@ -102,56 +110,101 @@ def _is_missing(value):
         return False
 
 
-def _foreign_key_value(field_name, value, row_number):
-    """Resolve a foreign-key ID or raise an actionable row error."""
+def _base_record(row):
+    """Map spreadsheet cells onto pending-company field names."""
+    record = {}
+    for field_name, value in row.items():
+        if field_name not in SPREADSHEET_FIELDS:
+            continue
+        field = PendingCompany._meta.get_field(field_name)
+        record[field_name] = (
+            None if field.null else ""
+        ) if _is_missing(value) else value
+    for field_name in SPREADSHEET_FIELDS - record.keys():
+        field = PendingCompany._meta.get_field(field_name)
+        record[field_name] = None if field.null else ""
+    return record
+
+
+def _reference_id(value):
+    """Coerce a spreadsheet cell into a whole-number primary key, else None."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    try:
+        as_float = float(value)
+        # Reject fractional values rather than truncating toward zero.
+        return int(as_float) if as_float.is_integer() else None
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _reference_caches(records):
+    """Prefetch each reference model once for the whole upload."""
+    caches = {}
+    for field_name, model in FOREIGN_KEY_MODELS.items():
+        candidate_ids = {_reference_id(record.get(field_name)) for record in records}
+        candidate_ids.discard(None)
+        caches[field_name] = (
+            model.objects.in_bulk(candidate_ids) if candidate_ids else {}
+        )
+    return caches
+
+
+def _resolve_reference(field_name, model, value, row_number, references):
+    """Substitute a referenced instance or raise an actionable row error."""
     if _is_missing(value):
         raise UploadValidationError(f"Row {row_number}: {field_name} is required.")
 
-    model = FOREIGN_KEY_MODELS[field_name]
-    try:
-        return model.objects.get(pk=value)
-    except (model.DoesNotExist, TypeError, ValueError) as error:
+    instance = references.get(_reference_id(value))
+    if instance is None:
         raise UploadValidationError(
             f"Row {row_number}: {field_name} must contain a valid {model.__name__} ID."
-        ) from error
-
-
-def _pending_company_record(row, row_number):
-    """Build one validated PendingCompany constructor record."""
-    model_fields = {
-        field.name
-        for field in PendingCompany._meta.concrete_fields
-        if field.name not in EXCLUDED_MODEL_FIELDS
-    }
-    record = {
-        field_name: ("" if _is_missing(value) else value)
-        for field_name, value in row.items()
-        if field_name in model_fields
-    }
-    for field in PendingCompany._meta.concrete_fields:
-        if field.name not in EXCLUDED_MODEL_FIELDS and field.name not in record:
-            record[field.name] = None if field.null else ""
-
-    for field_name in REQUIRED_UPLOAD_COLUMNS - FOREIGN_KEY_MODELS.keys():
-        if _is_missing(record.get(field_name)):
-            raise UploadValidationError(f"Row {row_number}: {field_name} is required.")
-
-    for field_name in FOREIGN_KEY_MODELS:
-        record[field_name] = _foreign_key_value(
-            field_name, record.get(field_name), row_number
         )
+    return instance
 
-    return record
+
+def _validated_records(dataframe):
+    """Validate every row up front and yield constructor records in input order."""
+    rows = [
+        (row_number, _base_record(row))
+        for row_number, row in enumerate(dataframe.to_dict("records"), start=2)
+    ]
+    # Materialize; _reference_caches sweeps its argument once per reference model.
+    records = [record for _, record in rows]
+    caches = _reference_caches(records)
+    required_columns = REQUIRED_UPLOAD_COLUMNS - FOREIGN_KEY_MODELS.keys()
+    for row_number, record in rows:
+        for field_name in required_columns:
+            if _is_missing(record.get(field_name)):
+                raise UploadValidationError(f"Row {row_number}: {field_name} is required.")
+        for field_name, model in FOREIGN_KEY_MODELS.items():
+            record[field_name] = _resolve_reference(
+                field_name, model, record.get(field_name), row_number, caches[field_name]
+            )
+        yield record
 
 
 @transaction.atomic
 def import_pending_companies(dataframe):
     """Validate and atomically create pending companies and upload indexes."""
     validate_upload_columns(dataframe)
-    created = []
-    for row_number, row in enumerate(dataframe.to_dict("records"), start=2):
-        company = PendingCompany(**_pending_company_record(row, row_number))
-        company.save()
-        UploadIndex.objects.create(pendingID=str(company.pk))
-        created.append(company)
-    return created
+    records = list(_validated_records(dataframe))
+    batch_id = uuid.uuid4()
+    staged = [PendingCompany(import_batch_id=batch_id, **record) for record in records]
+    PendingCompany.objects.bulk_create(staged, batch_size=IMPORT_BATCH_SIZE)
+
+    # MySQL cannot report generated ids from bulk_create; correlate rows by batch.
+    persisted = list(PendingCompany.objects.filter(import_batch_id=batch_id).order_by("pk"))
+    if len(persisted) != len(staged):
+        raise RuntimeError("The number of staged rows did not match the uploaded rows.")
+
+    UploadIndex.objects.bulk_create(
+        (UploadIndex(pendingID=str(company.pk)) for company in persisted),
+        batch_size=IMPORT_BATCH_SIZE,
+    )
+    PendingCompany.objects.filter(import_batch_id=batch_id).update(import_batch_id=None)
+    for company in persisted:
+        company.import_batch_id = None
+    return persisted

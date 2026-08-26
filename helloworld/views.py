@@ -383,8 +383,11 @@ def edit_company(request: HttpRequest, id: int) -> HttpResponse:
     if request.POST and form.is_valid():
         company_edit = form.save(commit=False)
         new_company = PendingCompany()
-        for field in new_company._meta.fields:
-            if not field.primary_key:
+        pending_field_names = {
+            field.name for field in new_company._meta.concrete_fields
+        }
+        for field in company_edit._meta.concrete_fields:
+            if not field.primary_key and field.name in pending_field_names:
                 setattr(new_company, field.name, getattr(company_edit, field.name))
 
         # If location fields have changed, geocode new lat/lng

@@ -208,6 +208,9 @@ class CompanyDetail(models.Model):
 
 class PendingCompany(CompanyDetail):
 
+    # Correlation token for bulk-imported rows; cleared once an import commits.
+    import_batch_id = models.UUIDField(null=True, blank=True, db_index=True, editable=False)
+
     class Meta:
         db_table = "pending_company"
 
