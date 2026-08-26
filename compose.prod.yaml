@@ -1,0 +1,22 @@
+name: hempdb-production
+
+x-production-env-file: &production-env-file
+  - .env
+
+services:
+  migrate:
+    env_file: *production-env-file
+    environment:
+      SENTRY_ENVIRONMENT: "${SENTRY_ENVIRONMENT:-production}"
+
+  app:
+    env_file: *production-env-file
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      SENTRY_ENVIRONMENT: "${SENTRY_ENVIRONMENT:-production}"
+
+  cron:
+    env_file: *production-env-file
+    environment:
+      SENTRY_ENVIRONMENT: "${SENTRY_ENVIRONMENT:-production}"
