@@ -29,7 +29,6 @@ jobs:
           mkdir -p docker/secrets
           touch docker/secrets/secret_key
           touch docker/secrets/database_url
-          touch docker/secrets/database_ca
 
       - name: Validate production Compose
         run: |
