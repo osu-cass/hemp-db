@@ -96,6 +96,9 @@ default_csrf_origins = [] if DEBUG else [f'https://{PRODUCTION_URL}']
 CSRF_TRUSTED_ORIGINS = env_list('CSRF_TRUSTED_ORIGINS', default_csrf_origins)
 
 SECURE_SSL_REDIRECT = env_bool('SECURE_SSL_REDIRECT', False)
+# Health probes reach the container over plain HTTP on the internal port,
+# so they must answer instead of redirecting to HTTPS.
+SECURE_REDIRECT_EXEMPT = env_list('SECURE_REDIRECT_EXEMPT', [r'^health/'])
 SESSION_COOKIE_SECURE = env_bool('SESSION_COOKIE_SECURE', not DEBUG)
 CSRF_COOKIE_SECURE = env_bool('CSRF_COOKIE_SECURE', not DEBUG)
 SECURE_HSTS_SECONDS = env_int('SECURE_HSTS_SECONDS', 0)
