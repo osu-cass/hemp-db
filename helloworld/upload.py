@@ -169,13 +169,13 @@ def _resolve_reference(field_name, model, value, row_number, references):
 
 
 def _validated_records(dataframe):
-    """Validate every row up front and yield constructor records in input order."""
+    """Validate every row and return constructor records in input order."""
     rows = [
         (row_number, _base_record(row))
         for row_number, row in enumerate(dataframe.to_dict("records"), start=2)
     ]
-    # Materialize; _reference_caches sweeps its argument once per reference model.
     records = [record for _, record in rows]
+    # A list, because _reference_caches iterates it once per reference model.
     caches = _reference_caches(records)
     required_columns = REQUIRED_UPLOAD_COLUMNS - FOREIGN_KEY_MODELS.keys()
     for row_number, record in rows:
@@ -186,14 +186,14 @@ def _validated_records(dataframe):
             record[field_name] = _resolve_reference(
                 field_name, model, record.get(field_name), row_number, caches[field_name]
             )
-        yield record
+    return records
 
 
 @transaction.atomic
 def import_pending_companies(dataframe):
     """Validate and atomically create pending companies and upload indexes."""
     validate_upload_columns(dataframe)
-    records = list(_validated_records(dataframe))
+    records = _validated_records(dataframe)
     batch_id = uuid.uuid4()
     staged = [PendingCompany(import_batch_id=batch_id, **record) for record in records]
     PendingCompany.objects.bulk_create(staged, batch_size=IMPORT_BATCH_SIZE)

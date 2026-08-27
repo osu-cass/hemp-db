@@ -3,7 +3,6 @@
 import threading
 from datetime import timedelta
 from decimal import Decimal
-from inspect import unwrap
 from unittest import skipUnless
 from unittest.mock import patch
 
@@ -128,7 +127,7 @@ class UploadWizardTests(TestCase):
         path = "/upload_wizard" if page is None else f"/upload_wizard?page={page}"
         request = self.factory.get(path)
         request.user = self.user
-        return unwrap(upload_wizard)(request)
+        return upload_wizard(request)
 
     def test_marks_duplicates_with_constant_query_count(self):
         """Compute duplicate flags without one query per staged row."""
@@ -181,7 +180,7 @@ class UploadWizardTests(TestCase):
                     patch("helloworld.views.approve_pending_companies") as approve,
                     patch("helloworld.views.messages.info") as add_message,
                 ):
-                    response = unwrap(upload_wizard)(request)
+                    response = upload_wizard(request)
 
                 self.assertEqual(response.status_code, 302)
                 approve.assert_called_once_with(unique_only=unique_only)
@@ -519,45 +518,26 @@ class PendingCompanyApprovalTests(CompanyImportTestBase):
         existing = Company.objects.create(
             SrcKey="", Name="Existing", Address="", Country="USA"
         )
-        staged = [
-            self._stage("existing"),
-            self._stage("Upload Name"),
-            self._stage("upload name"),
-            self._stage("Different Name"),
-        ]
-        expected = []
-        second_has_earlier_match = PendingCompany.objects.filter(
-            Name=staged[2].Name, pk__lt=staged[2].pk
-        ).exists()
-        for company in PendingCompany.objects.order_by("pk"):
-            if Company.objects.filter(Name=company.Name).exists():
-                continue
-            if PendingCompany.objects.filter(
-                Name=company.Name, pk__lt=company.pk
-            ).exists():
-                continue
-            expected.append(company.Name)
+        self._stage("existing")  # Case-insensitive match on the existing name.
+        self._stage("Upload Name")
+        self._stage("upload name")  # Database-equal duplicate; first row wins.
+        self._stage("Different Name")
 
         with patch("helloworld.upload.invalidate_map_cache"):
             with self.captureOnCommitCallbacks(execute=True):
                 created = approve_pending_companies(unique_only=True)
 
-        self.assertEqual(created, len(expected))
+        self.assertEqual(created, 2)
         self.assertEqual(
             list(
                 Company.objects.exclude(pk=existing.pk)
                 .order_by("pk")
                 .values_list("Name", flat=True)
             ),
-            expected,
+            ["Upload Name", "Different Name"],
         )
         self.assertFalse(PendingCompany.objects.exists())
         self.assertFalse(UploadIndex.objects.exists())
-
-        # The expected values above come from direct database comparisons. This
-        # assertion makes the first-primary-key rule explicit for the pair.
-        if second_has_earlier_match:
-            self.assertNotIn(staged[2].Name, expected)
 
     def test_copies_scalar_values_foreign_keys_and_timestamps(self):
         """Copy concrete values and preserve creation time during approval."""
