@@ -7,8 +7,11 @@ import zipfile
 
 import pandas as pd
 from django.db import transaction
+from django.db.models import Exists, Min, OuterRef
+from django.utils import timezone
 
-from .models import Grower, Industry, PendingCompany, Status, UploadIndex
+from .models import Company, Grower, Industry, PendingCompany, Status, UploadIndex
+from .signals import invalidate_map_cache
 
 
 class UploadValidationError(ValueError):
@@ -208,3 +211,53 @@ def import_pending_companies(dataframe):
     for company in persisted:
         company.import_batch_id = None
     return persisted
+
+
+def approve_pending_companies(*, unique_only: bool) -> int:
+    """Promote indexed pending companies and remove the upload staging rows."""
+    with transaction.atomic():
+        pending_ids = list(
+            UploadIndex.objects.select_for_update().values_list(
+                "pendingID", flat=True
+            )
+        )
+        if not pending_ids:
+            return 0
+
+        indexed_pending = PendingCompany.objects.filter(pk__in=pending_ids).order_by(
+            "pk"
+        )
+        if unique_only:
+            first_pending_ids = (
+                indexed_pending.order_by()
+                .values("Name")
+                .annotate(first_pk=Min("pk"))
+                .values("first_pk")
+            )
+            existing_company = Company.objects.filter(Name=OuterRef("Name"))
+            pending = (
+                indexed_pending.filter(pk__in=first_pending_ids)
+                .annotate(company_exists=Exists(existing_company))
+                .filter(company_exists=False)
+            )
+        else:
+            pending = indexed_pending
+
+        pending_companies = list(pending)
+        approval_time = timezone.now()
+        companies = [
+            Company(
+                **company.shared_concrete_field_values(
+                    Company, excluded_fields={"lastUpdated"}
+                ),
+                lastUpdated=approval_time,
+            )
+            for company in pending_companies
+        ]
+        Company.objects.bulk_create(companies, batch_size=IMPORT_BATCH_SIZE)
+
+        PendingCompany.objects.filter(pk__in=pending_ids).delete()
+        UploadIndex.objects.all().delete()
+        if companies:
+            transaction.on_commit(lambda: invalidate_map_cache(sender=Company))
+        return len(companies)

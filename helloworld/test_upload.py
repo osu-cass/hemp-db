@@ -1,20 +1,48 @@
 """Focused tests for spreadsheet parsing and atomic company imports."""
 
+import threading
+from datetime import timedelta
+from decimal import Decimal
 from inspect import unwrap
+from unittest import skipUnless
 from unittest.mock import patch
 
 import pandas as pd
+from django.contrib.messages import get_messages
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.db import IntegrityError, connection
-from django.test import RequestFactory, SimpleTestCase, TestCase
+from django.db import (
+    IntegrityError,
+    close_old_connections,
+    connection,
+    connections,
+    transaction,
+)
+from django.test import (
+    Client,
+    RequestFactory,
+    SimpleTestCase,
+    TestCase,
+    TransactionTestCase,
+)
 from django.test.utils import CaptureQueriesContext
+from django.urls import reverse
 from django.utils import timezone
 
-from .models import Company, Grower, Industry, PendingCompany, Status, UploadIndex
+from .models import (
+    Company,
+    Grower,
+    Industry,
+    PendingChanges,
+    PendingCompany,
+    Solution,
+    Status,
+    UploadIndex,
+)
 from .upload import (
     IMPORT_BATCH_SIZE,
     UploadValidationError,
+    approve_pending_companies,
     import_pending_companies,
     read_upload_dataframe,
     validate_upload_columns,
@@ -139,6 +167,47 @@ class UploadWizardTests(TestCase):
         self.assertContains(second_page, "Company 100")
         self.assertNotContains(second_page, "Company 000")
         self.assertContains(second_page, "Showing 101-101 of 101 staged companies")
+
+    def test_approval_buttons_call_the_helper_with_explicit_modes(self):
+        """Route each approval action through the matching helper mode."""
+        for button, unique_only, message in (
+            ("add-all", False, "Uploaded All Companies"),
+            ("add-unique", True, "Uploaded Unique Companies"),
+        ):
+            with self.subTest(button=button):
+                request = self.factory.post("/upload_wizard", {button: "1"})
+                request.user = self.user
+                with (
+                    patch("helloworld.views.approve_pending_companies") as approve,
+                    patch("helloworld.views.messages.info") as add_message,
+                ):
+                    response = unwrap(upload_wizard)(request)
+
+                self.assertEqual(response.status_code, 302)
+                approve.assert_called_once_with(unique_only=unique_only)
+                add_message.assert_called_once_with(request, message)
+
+    def test_staff_client_approves_with_csrf_message_and_redirect(self):
+        """Approve through the real staff and CSRF middleware path."""
+        staged = self._stage("Client Approved")
+        client = Client(enforce_csrf_checks=True)
+        client.force_login(self.user)
+        client.get(reverse("upload-wizard"))
+        csrf_token = client.cookies["csrftoken"].value
+
+        response = client.post(
+            reverse("upload-wizard"),
+            {"add-all": "1", "csrfmiddlewaretoken": csrf_token},
+        )
+
+        self.assertRedirects(response, "/companies", fetch_redirect_response=False)
+        self.assertEqual(
+            [str(message) for message in get_messages(response.wsgi_request)],
+            ["Uploaded All Companies"],
+        )
+        self.assertTrue(Company.objects.filter(Name=staged.Name).exists())
+        self.assertFalse(PendingCompany.objects.exists())
+        self.assertFalse(UploadIndex.objects.exists())
 
 
 class CompanyImportTestBase(TestCase):
@@ -398,3 +467,304 @@ class ImportQueryTests(CompanyImportTestBase):
         multi_row = staged_statements(10)
 
         self.assertEqual(multi_row, single_row)
+
+
+class PendingCompanyApprovalTests(CompanyImportTestBase):
+    """Verify set-based promotion and cleanup of staged companies."""
+
+    def _stage(self, name, **values):
+        """Create one indexed pending company with valid reference fields."""
+        defaults = {
+            "SrcKey": "source-key",
+            "Name": name,
+            "Industry": self.industry,
+            "Status": self.status,
+            "Grower": self.grower,
+            "Address": "123 Main Street",
+            "Country": "USA",
+        }
+        defaults.update(values)
+        company = PendingCompany.objects.create(**defaults)
+        UploadIndex.objects.create(pendingID=str(company.pk))
+        return company
+
+    def test_add_all_promotes_existing_and_duplicate_names(self):
+        """Promote every indexed row, including duplicate names."""
+        existing = Company.objects.create(
+            SrcKey="", Name="Existing", Address="", Country="USA"
+        )
+        staged = [
+            self._stage(existing.Name),
+            self._stage("Repeated"),
+            self._stage("Repeated"),
+        ]
+
+        with patch("helloworld.upload.invalidate_map_cache") as invalidate:
+            with self.captureOnCommitCallbacks(execute=True):
+                created = approve_pending_companies(unique_only=False)
+
+        self.assertEqual(created, len(staged))
+        self.assertCountEqual(
+            Company.objects.values_list("Name", flat=True),
+            [existing.Name, *(company.Name for company in staged)],
+        )
+        self.assertFalse(PendingCompany.objects.exists())
+        self.assertFalse(UploadIndex.objects.exists())
+        invalidate.assert_called_once_with(sender=Company)
+
+        self.assertEqual(approve_pending_companies(unique_only=False), 0)
+
+    def test_add_unique_uses_database_name_equality_and_first_pk(self):
+        """Skip database-equivalent names and keep the first staged row."""
+        existing = Company.objects.create(
+            SrcKey="", Name="Existing", Address="", Country="USA"
+        )
+        staged = [
+            self._stage("existing"),
+            self._stage("Upload Name"),
+            self._stage("upload name"),
+            self._stage("Different Name"),
+        ]
+        expected = []
+        second_has_earlier_match = PendingCompany.objects.filter(
+            Name=staged[2].Name, pk__lt=staged[2].pk
+        ).exists()
+        for company in PendingCompany.objects.order_by("pk"):
+            if Company.objects.filter(Name=company.Name).exists():
+                continue
+            if PendingCompany.objects.filter(
+                Name=company.Name, pk__lt=company.pk
+            ).exists():
+                continue
+            expected.append(company.Name)
+
+        with patch("helloworld.upload.invalidate_map_cache"):
+            with self.captureOnCommitCallbacks(execute=True):
+                created = approve_pending_companies(unique_only=True)
+
+        self.assertEqual(created, len(expected))
+        self.assertEqual(
+            list(
+                Company.objects.exclude(pk=existing.pk)
+                .order_by("pk")
+                .values_list("Name", flat=True)
+            ),
+            expected,
+        )
+        self.assertFalse(PendingCompany.objects.exists())
+        self.assertFalse(UploadIndex.objects.exists())
+
+        # The expected values above come from direct database comparisons. This
+        # assertion makes the first-primary-key rule explicit for the pair.
+        if second_has_earlier_match:
+            self.assertNotIn(staged[2].Name, expected)
+
+    def test_copies_scalar_values_foreign_keys_and_timestamps(self):
+        """Copy concrete values and preserve creation time during approval."""
+        date_created = timezone.now() - timedelta(days=2)
+        staged = self._stage(
+            "Full Company",
+            SrcKey="source-123",
+            Address="456 Market Street",
+            Sales="Sales value",
+            Country="Canada",
+            Latitude=Decimal("45.123456"),
+            Longitude=Decimal("-122.123456"),
+            dateCreated=date_created,
+        )
+        started = timezone.now()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            created = approve_pending_companies(unique_only=False)
+
+        finished = timezone.now()
+        company = Company.objects.get(Name=staged.Name)
+        self.assertEqual(created, 1)
+        self.assertEqual(company.SrcKey, staged.SrcKey)
+        self.assertEqual(company.Address, staged.Address)
+        self.assertEqual(company.Sales, staged.Sales)
+        self.assertEqual(company.Country, staged.Country)
+        self.assertEqual(company.Latitude, staged.Latitude)
+        self.assertEqual(company.Longitude, staged.Longitude)
+        self.assertEqual(company.Industry_id, self.industry.pk)
+        self.assertEqual(company.Status_id, self.status.pk)
+        self.assertEqual(company.Grower_id, self.grower.pk)
+        self.assertEqual(company.dateCreated, date_created)
+        self.assertTrue(started <= company.lastUpdated <= finished)
+
+    def test_approval_stamps_every_promoted_company(self):
+        """Stamp every promoted company during the approval window."""
+        staged = [self._stage("Timestamp One"), self._stage("Timestamp Two")]
+        started = timezone.now()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            approve_pending_companies(unique_only=False)
+
+        finished = timezone.now()
+        timestamps = list(
+            Company.objects.filter(Name__in=[company.Name for company in staged])
+            .order_by("pk")
+            .values_list("lastUpdated", flat=True)
+        )
+        self.assertEqual(len(timestamps), len(staged))
+        self.assertTrue(
+            all(started <= timestamp <= finished for timestamp in timestamps)
+        )
+
+    def test_cleanup_removes_related_pending_rows(self):
+        """Delete staged many-to-many and pending-change rows after approval."""
+        existing = Company.objects.create(
+            SrcKey="", Name="Existing", Address="", Country="USA"
+        )
+        staged = self._stage("Related Pending")
+        solution = Solution.objects.create(solution="Fiber")
+        staged.Solutions.add(solution)
+        PendingChanges.objects.create(
+            company=existing,
+            pending_company=staged,
+            changeType="edit",
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            approve_pending_companies(unique_only=False)
+
+        self.assertFalse(PendingChanges.objects.exists())
+        self.assertFalse(PendingCompany.Solutions.through.objects.exists())
+        self.assertTrue(Company.objects.filter(Name=staged.Name).exists())
+
+    def test_unique_without_new_companies_does_not_invalidate_cache(self):
+        """Skip existing names without registering a cache callback."""
+        existing = Company.objects.create(
+            SrcKey="", Name="Existing", Address="", Country="USA"
+        )
+        self._stage(existing.Name)
+
+        with patch("helloworld.upload.invalidate_map_cache") as invalidate:
+            with self.captureOnCommitCallbacks(execute=True):
+                created = approve_pending_companies(unique_only=True)
+
+        self.assertEqual(created, 0)
+        invalidate.assert_not_called()
+        self.assertEqual(Company.objects.count(), 1)
+        self.assertFalse(PendingCompany.objects.exists())
+        self.assertFalse(UploadIndex.objects.exists())
+
+    def test_failure_after_insert_rolls_back_everything_and_cache(self):
+        """Roll back promotion and preserve staging rows after cleanup fails."""
+        staged = self._stage("Rollback Company")
+
+        with (
+            patch.object(
+                UploadIndex.objects,
+                "all",
+                side_effect=IntegrityError("Upload-index cleanup failed."),
+            ),
+            patch("helloworld.upload.invalidate_map_cache") as invalidate,
+            self.captureOnCommitCallbacks(execute=True) as callbacks,
+            self.assertRaises(IntegrityError),
+        ):
+            approve_pending_companies(unique_only=False)
+
+        self.assertFalse(Company.objects.exists())
+        self.assertTrue(PendingCompany.objects.filter(pk=staged.pk).exists())
+        self.assertTrue(UploadIndex.objects.filter(pendingID=str(staged.pk)).exists())
+        self.assertEqual(callbacks, [])
+        invalidate.assert_not_called()
+
+    @skipUnless(connection.vendor == "mysql", "Requires MySQL batch-size behavior.")
+    def test_approval_company_inserts_are_batch_bounded(self):
+        """Keep company inserts flat through 500 rows and batch beyond it."""
+        def approval_statements(row_count):
+            """Return total and company-insert SQL counts for one approval."""
+            for index in range(row_count):
+                self._stage(f"Batch Company {row_count}-{index}")
+            with CaptureQueriesContext(connection) as context:
+                approve_pending_companies(unique_only=False)
+            company_inserts = sum(
+                query["sql"].lower().startswith("insert into `company`")
+                for query in context.captured_queries
+            )
+            return len(context.captured_queries), company_inserts
+
+        one_row, one_row_inserts = approval_statements(1)
+        one_batch, one_batch_inserts = approval_statements(IMPORT_BATCH_SIZE)
+        two_batches, two_batch_inserts = approval_statements(IMPORT_BATCH_SIZE + 1)
+
+        self.assertEqual(one_batch_inserts, one_row_inserts)
+        self.assertEqual(two_batch_inserts, one_batch_inserts + 1)
+        self.assertLess(one_batch, one_row + 50)
+        self.assertLess(two_batches, one_batch + 50)
+
+
+class ApprovalConcurrencyTests(TransactionTestCase):
+    """Verify duplicate approval requests serialize on upload-index rows."""
+
+    @skipUnless(connection.vendor == "mysql", "Requires MySQL row locking.")
+    def test_duplicate_approvals_serialize(self):
+        """Block the second approval until the first transaction commits."""
+        staged = PendingCompany.objects.create(
+            SrcKey="",
+            Name="Concurrent Approval",
+            Address="",
+            Country="USA",
+        )
+        UploadIndex.objects.create(pendingID=str(staged.pk))
+        first_inside = threading.Event()
+        release_first = threading.Event()
+        second_select_started = threading.Event()
+        second_done = threading.Event()
+        results = {}
+        errors = []
+
+        def first_approval():
+            close_old_connections()
+            try:
+                with transaction.atomic():
+                    results["first"] = approve_pending_companies(unique_only=False)
+                    first_inside.set()
+                    if not release_first.wait(10):
+                        raise TimeoutError("First approval was not released.")
+            except Exception as error:  # pragma: no cover - reported by assertion
+                errors.append(("first", error))
+            finally:
+                connections["default"].close()
+
+        def second_approval():
+            close_old_connections()
+            thread_connection = connections["default"]
+
+            def mark_locking_select(execute, sql, params, many, context):
+                if "FOR UPDATE" in sql.upper() and "upload_index" in sql.lower():
+                    second_select_started.set()
+                return execute(sql, params, many, context)
+
+            try:
+                with thread_connection.execute_wrapper(mark_locking_select):
+                    results["second"] = approve_pending_companies(unique_only=False)
+            except Exception as error:  # pragma: no cover - reported by assertion
+                errors.append(("second", error))
+            finally:
+                second_done.set()
+                thread_connection.close()
+
+        first_thread = threading.Thread(target=first_approval)
+        second_thread = threading.Thread(target=second_approval)
+        first_thread.start()
+        try:
+            self.assertTrue(first_inside.wait(10))
+            second_thread.start()
+            self.assertTrue(second_select_started.wait(10))
+            self.assertFalse(second_done.wait(0.5))
+        finally:
+            release_first.set()
+            first_thread.join(10)
+            if second_thread.ident is not None:
+                second_thread.join(10)
+
+        self.assertFalse(first_thread.is_alive())
+        self.assertFalse(second_thread.is_alive())
+        self.assertEqual(errors, [])
+        self.assertEqual(results, {"first": 1, "second": 0})
+        self.assertEqual(Company.objects.count(), 1)
+        self.assertFalse(PendingCompany.objects.exists())
+        self.assertFalse(UploadIndex.objects.exists())

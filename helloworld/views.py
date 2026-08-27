@@ -33,6 +33,7 @@ from .models import Resources
 from .models import UploadIndex
 from .upload import (
     UploadValidationError,
+    approve_pending_companies,
     import_pending_companies,
     read_upload_dataframe,
 )
@@ -102,32 +103,19 @@ def upload_wizard(request: HttpRequest) -> HttpResponse:
     if request.method == "POST":
         # Add all companies
         if "add-all" in request.POST:
-            for company in companies:
-                new_company = Company()
-                for field in company._meta.fields:
-                    if not field.primary_key:
-                        setattr(new_company, field.name, getattr(company, field.name))
-                new_company.save()
-                company.delete()
+            approve_pending_companies(unique_only=False)
             message = "Uploaded All Companies"
         # Add only unique companies
         elif "add-unique" in request.POST:
-            for company in companies:
-                dup = Company.objects.filter(Name = company.Name).all()
-                if not dup:
-                    new_company = Company()
-                    for field in company._meta.fields:
-                        if not field.primary_key:
-                            setattr(new_company, field.name, getattr(company, field.name))
-                    new_company.save()
-                company.delete()
+            approve_pending_companies(unique_only=True)
             message = "Uploaded Unique Companies"
         # Upload Nothing
         elif "cancel" in request.POST:
             companies.delete()
             message = "Canceled File Upload"
-
-        UploadIndex.objects.all().delete()
+            UploadIndex.objects.all().delete()
+        else:
+            UploadIndex.objects.all().delete()
         messages.info(request, message)
         return redirect("/companies")
     duplicate = Company.objects.filter(Name=models.OuterRef("Name"))
@@ -384,13 +372,9 @@ def edit_company(request: HttpRequest, id: int) -> HttpResponse:
 
     if request.POST and form.is_valid():
         company_edit = form.save(commit=False)
-        new_company = PendingCompany()
-        pending_field_names = {
-            field.name for field in new_company._meta.concrete_fields
-        }
-        for field in company_edit._meta.concrete_fields:
-            if not field.primary_key and field.name in pending_field_names:
-                setattr(new_company, field.name, getattr(company_edit, field.name))
+        new_company = PendingCompany(
+            **company_edit.shared_concrete_field_values(PendingCompany)
+        )
 
         # If location fields have changed, geocode new lat/lng
         location_changed = check_if_location_edited(original_company, new_company)
