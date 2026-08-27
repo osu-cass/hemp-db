@@ -234,6 +234,7 @@ class Company(CompanyDetail):
     pendingChanges = models.ManyToManyField(PendingCompany, through="PendingChanges")
     class Meta:
         db_table = "company"
+        indexes = [models.Index(fields=["Name"], name="company_name_idx")]
 
         verbose_name = "Company"
         verbose_name_plural = "Companies"

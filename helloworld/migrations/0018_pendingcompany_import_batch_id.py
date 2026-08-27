@@ -13,4 +13,8 @@ class Migration(migrations.Migration):
             name='import_batch_id',
             field=models.UUIDField(blank=True, db_index=True, editable=False, null=True),
         ),
+        migrations.AddIndex(
+            model_name='company',
+            index=models.Index(fields=['Name'], name='company_name_idx'),
+        ),
     ]

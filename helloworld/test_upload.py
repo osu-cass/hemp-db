@@ -163,9 +163,26 @@ class UploadWizardTests(TestCase):
         self.assertContains(first_page, "Company 099")
         self.assertNotContains(first_page, "Company 100")
         self.assertContains(first_page, "Showing 1-100 of 101 staged companies")
+        self.assertContains(first_page, 'class="pagination justify-content-center"')
+        self.assertInHTML(
+            '<li class="page-item disabled"><span class="page-link">First</span></li>',
+            first_page.content.decode(),
+        )
+        self.assertInHTML(
+            '<li class="page-item disabled"><span class="page-link">Previous</span></li>',
+            first_page.content.decode(),
+        )
         self.assertContains(second_page, "Company 100")
         self.assertNotContains(second_page, "Company 000")
         self.assertContains(second_page, "Showing 101-101 of 101 staged companies")
+        self.assertInHTML(
+            '<li class="page-item disabled"><span class="page-link">Next</span></li>',
+            second_page.content.decode(),
+        )
+        self.assertInHTML(
+            '<li class="page-item disabled"><span class="page-link">Last</span></li>',
+            second_page.content.decode(),
+        )
 
     def test_approval_buttons_call_the_helper_with_explicit_modes(self):
         """Route each approval action through the matching helper mode."""

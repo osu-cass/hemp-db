@@ -29,13 +29,20 @@
 
     {% if data.has_other_pages %}
       <nav aria-label="Upload preview pages">
-        <ul class="pagination">
+        <ul class="pagination justify-content-center">
           {% if data.has_previous %}
             <li class="page-item">
               <a class="page-link" href="?page=1">First</a>
             </li>
             <li class="page-item">
               <a class="page-link" href="?page={{ data.previous_page_number }}">Previous</a>
+            </li>
+          {% else %}
+            <li class="page-item disabled">
+              <span class="page-link">First</span>
+            </li>
+            <li class="page-item disabled">
+              <span class="page-link">Previous</span>
             </li>
           {% endif %}
           <li class="page-item disabled">
@@ -47,6 +54,13 @@
             </li>
             <li class="page-item">
               <a class="page-link" href="?page={{ data.paginator.num_pages }}">Last</a>
+            </li>
+          {% else %}
+            <li class="page-item disabled">
+              <span class="page-link">Next</span>
+            </li>
+            <li class="page-item disabled">
+              <span class="page-link">Last</span>
             </li>
           {% endif %}
         </ul>
