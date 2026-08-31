@@ -100,7 +100,7 @@ More technical information, including architecture, local development, and featu
 
 ## Local Development
 
-The local development environment runs Django and its supporting services with Docker Compose. The default stack includes the Django app, Percona Server for MySQL 8.0 (matching production), Valkey, and Mailpit. It uses safe local credentials. The first run starts with an empty database and applies migrations automatically.
+The local development environment runs Django and its supporting services with Docker Compose. The default stack includes the Django app, Percona Server for MySQL 8.4, Valkey, and Mailpit. It uses safe local credentials. The first run starts with an empty database and applies migrations automatically.
 
 Build and start the default stack:
 
