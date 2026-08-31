@@ -304,6 +304,7 @@ if SENTRY_DSN:
     sentry_sdk.init(
         dsn=SENTRY_DSN,
         environment=SENTRY_ENVIRONMENT,
+        send_default_pii=False,
         traces_sample_rate=env_float('SENTRY_TRACES_SAMPLE_RATE', 0.1),
         profiles_sample_rate=env_float('SENTRY_PROFILES_SAMPLE_RATE', 0.0),
     )
