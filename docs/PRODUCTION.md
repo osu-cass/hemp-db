@@ -40,7 +40,7 @@ chmod 600 .env
 
 Set these values in `.env`:
 
-- production: `PRODUCTION_URL` and the three secret paths;
+- production: `PRODUCTION_URL` and the two secret paths;
 - staging: the same, with the staging hostname;
 - both environments: optional `SENTRY_DSN` and an optional `HEMPDB_IMAGE`
   override of the default branch tag.
@@ -70,18 +70,20 @@ variables. The shared deployment base maps these settings:
 | --- | --- |
 | `SECRET_KEY_FILE` | `/run/secrets/django_secret_key` |
 | `DATABASE_URL_FILE` | `/run/secrets/database_url` |
-| `MYSQL_ATTR_SSL_CA` | `/run/secrets/database_ca` |
 
-Django reads the `*_FILE` values through its secret-aware settings helper, and
-uses the CA path for verified MySQL TLS. `REDIS_URL` is not a secret: it
-points at the Valkey container inside the stack (`redis://valkey:6379/0`). Do
-not put secret contents in an env file.
+Django reads the `*_FILE` values through its secret-aware settings helper.
+`REDIS_URL` is not a secret: it points at the Valkey container inside the
+stack (`redis://valkey:6379/0`). Do not put secret contents in an env file.
+
+MySQL TLS needs no secret. The database serves a publicly signed certificate,
+so Django verifies it against the system CA store with hostname checking. Set
+`MYSQL_ATTR_SSL_CA` to a mounted CA file only if the database is ever moved
+behind a private CA.
 
 | Secret | Purpose |
 | --- | --- |
 | `secret_key` | Django signing key |
 | `database_url` | Complete external MySQL URL |
-| `database_ca` | CA certificate for MySQL hostname verification |
 
 Chef writes the secret files into `docker/secrets/` inside the checkout with
 `0400` permissions owned by the container user. To stage them by hand:
@@ -89,7 +91,7 @@ Chef writes the secret files into `docker/secrets/` inside the checkout with
 ```sh
 mkdir -p docker/secrets
 chmod 700 docker/secrets
-# create docker/secrets/{secret_key,database_url,database_ca}, then:
+# create docker/secrets/{secret_key,database_url}, then:
 chmod 400 docker/secrets/*
 ```
 
@@ -123,7 +125,7 @@ changes.
 
 ## Staging
 
-Staging (`hemp-db-staging.cass.oregonstate.edu`) tracks
+Staging (`hempdb-staging.cass.oregonstate.edu`) tracks
 `ghcr.io/osu-cass/hemp-db:dev`, published on every push to `dev`. Deploying
 means pulling the refreshed tag and restarting the stack; Chef does this on
 its regular runs when the image or configuration changes. The overlay adds
@@ -139,12 +141,12 @@ The app and cron containers use `mailpit:1025` with TLS and credentials
 disabled. The app and Mailpit publish host ports set by `APP_PORT` and
 `MAILPIT_PORT` in `.env` (Chef sets `8094`/`8095`, inside the app host's
 firewall range for load balancer traffic; they default to `8001`/`8025`).
-The load balancer routes `https://hemp-db-staging.cass.oregonstate.edu`
+The load balancer routes `https://hempdb-staging.cass.oregonstate.edu`
 to the app and its `/mailpit` path to the Mailpit UI.
 
 ## Production
 
-Production (`hemp-db.cass.oregonstate.edu`) tracks
+Production (`hempdb.cass.oregonstate.edu`) tracks
 `ghcr.io/osu-cass/hemp-db:latest`, published on every push to `main`. Set
 `HEMPDB_IMAGE` in `.env` only to pin a specific tag, such as for a rollback.
 Validate and start the production overlay:

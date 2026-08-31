@@ -8,8 +8,8 @@ The website runs as Docker Compose stacks on hosts managed by the OSU Open
 Source Lab through the `osl-app` Chef cookbook. Images are published to GitHub
 Container Registry at `ghcr.io/osu-cass/hemp-db`: pushes to the `dev` branch
 publish the `dev` tag used by staging
-(`hemp-db-staging.cass.oregonstate.edu`); pushes to `main` publish `main` and
-`latest`, used by production (`hemp-db.cass.oregonstate.edu`). TLS termination
+(`hempdb-staging.cass.oregonstate.edu`); pushes to `main` publish `main` and
+`latest`, used by production (`hempdb.cass.oregonstate.edu`). TLS termination
 and ingress are handled by OSL-managed HAProxy in front of the
 loopback-bound app containers. See [PRODUCTION.md](PRODUCTION.md) for the
 deployment stacks and the Chef-owned host responsibilities.
@@ -18,8 +18,9 @@ deployment stacks and the Chef-owned host responsibilities.
 
 The data is stored in a Percona Server for MySQL 8.0 master/master cluster
 managed by the OSU Open Source Lab, external to the Compose stacks. The
-application connects with the `DATABASE_URL` Docker secret over TLS, verified
-against the CA certificate provided by the `database_ca` secret. Local
+application connects with the `DATABASE_URL` Docker secret over TLS. The
+cluster serves a publicly signed certificate, so it is verified against the
+system CA store with hostname checking and needs no CA secret. Local
 development uses Percona Server for MySQL 8.4 in a container.
 
 ## Cache

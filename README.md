@@ -15,7 +15,7 @@ This repository hosts all code and documentation for the HempDB Senior Capstone 
 
 ## Project Identity
 
-This web application is intended to aid the Oregon State University Center for Marketing and Consumer Insights in performing market research in the hemp industry. This research is supported by **USDA AFRI SAS Grant# 2021-68012-35957**. To learn more about the project, visit the [About Us](https://hemp-db.cass.oregonstate.edu/about/) page.
+This web application is intended to aid the Oregon State University Center for Marketing and Consumer Insights in performing market research in the hemp industry. This research is supported by **USDA AFRI SAS Grant# 2021-68012-35957**. To learn more about the project, visit the [About Us](https://hempdb.cass.oregonstate.edu/about/) page.
 
 ### People
 

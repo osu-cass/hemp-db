@@ -1,6 +1,6 @@
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 
 class HealthViewTests(SimpleTestCase):
@@ -60,3 +60,19 @@ class HealthViewTests(SimpleTestCase):
                 'checks': {'database': False, 'cache': True},
             },
         )
+
+    @override_settings(SECURE_SSL_REDIRECT=True)
+    def test_liveness_is_exempt_from_https_redirect(self):
+        """Answer plain HTTP health probes instead of redirecting them."""
+        with patch('hempdb.health.connections'), patch('hempdb.health.cache'):
+            response = self.client.get('/health/live/')
+
+        self.assertEqual(response.status_code, 200)
+
+    @override_settings(SECURE_SSL_REDIRECT=True)
+    def test_other_paths_still_redirect_to_https(self):
+        """Keep the HTTPS redirect for everything outside the health paths."""
+        response = self.client.get('/')
+
+        self.assertEqual(response.status_code, 301)
+        self.assertTrue(response['Location'].startswith('https://'))
