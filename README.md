@@ -147,7 +147,7 @@ Expand this dropdown to see the local service architecture.
 flowchart LR
     subgraph docker["Docker-managed: local development"]
         app[Django app]
-        mysql["Percona MySQL 8.0"]
+        mysql["Percona MySQL 8.4"]
         valkey[Valkey]
         mailpit["Mailpit<br/>SMTP 1025 / UI 8025"]
         phpmyadmin["phpMyAdmin<br/>dev-tools profile"]

@@ -20,7 +20,7 @@ The data is stored in a Percona Server for MySQL 8.0 master/master cluster
 managed by the OSU Open Source Lab, external to the Compose stacks. The
 application connects with the `DATABASE_URL` Docker secret over TLS, verified
 against the CA certificate provided by the `database_ca` secret. Local
-development runs the same Percona Server 8.0 as a container.
+development uses Percona Server for MySQL 8.4 in a container.
 
 ## Cache
 

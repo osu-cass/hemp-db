@@ -34,7 +34,7 @@ docker compose exec app python manage.py createsuperuser
 | Service | Purpose | Host access |
 | --- | --- | --- |
 | `app` | Django development server and management commands | <http://localhost:8000> |
-| `mysql` | Percona Server for MySQL 8.0 (matching production) application and test databases | `127.0.0.1:3307` by default |
+| `mysql` | Percona Server for MySQL 8.4 application and test databases | `127.0.0.1:3307` by default |
 | `valkey` | Django map cache | Compose network only |
 | `mailpit` | Captures all development email | <http://localhost:8025> |
 | `phpmyadmin` | Optional MySQL administration UI | <http://localhost:8081> |
@@ -128,9 +128,10 @@ docker compose down -v
 
 The next startup recreates an empty database and reapplies all migrations.
 
-If your `mysql_data` volume was created by an earlier Percona Server 8.4
-stack, run `docker compose down -v` once before starting: MySQL cannot open a
-data directory from a newer major version.
+If your `mysql_data` volume was created by Percona Server for MySQL 8.0, back it
+up or export a logical dump before starting this stack with 8.4. Returning to
+8.0 requires restoring a pre-upgrade backup or dump. Do not run `docker compose
+down -v` unless you intend to permanently delete the local database.
 
 ## Dependency and Configuration Changes
 
