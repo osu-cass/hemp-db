@@ -31,6 +31,12 @@ from .models import Industry
 from .models import Status
 from .models import Resources
 from .models import UploadIndex
+from .upload import (
+    UploadValidationError,
+    approve_pending_companies,
+    import_pending_companies,
+    read_upload_dataframe,
+)
 from .notifications import email_admins
 from .authentication import activate_email
 from django.shortcuts import render, redirect
@@ -49,19 +55,21 @@ from django.utils.http import urlsafe_base64_decode
 from django.utils.encoding import force_str
 from django.contrib.auth.tokens import default_token_generator
 from django.core.cache import cache
+from django.core.paginator import Paginator
 from django.conf import settings
 
 import csv
 import geocoder
+import logging
 from decimal import Decimal
 from copy import deepcopy
-import pandas as pd
-import numpy as np
 
 from django.db import models
 
 # Used for Pagination Bar on /companies
 PAGE_INDEX=['A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z','0','1','2','3','4','5','6','7','8','9']
+logger = logging.getLogger(__name__)
+UPLOAD_WIZARD_PAGE_SIZE = 100
 
 
 def _require_permission(request: HttpRequest, permission: str) -> None:
@@ -89,49 +97,36 @@ def upload_wizard(request: HttpRequest) -> HttpResponse:
     Returns:
     response (HttpResponse): HTTP response redirecting to companies page table
     """
-    index = UploadIndex.objects.all().values_list("pendingID")
-    companies = PendingCompany.objects.filter(pk__in = index)
+    index = UploadIndex.objects.values_list("pendingID", flat=True)
+    companies = PendingCompany.objects.filter(pk__in=index).order_by("pk")
     message = ""
     if request.method == "POST":
         # Add all companies
         if "add-all" in request.POST:
-            for company in companies:
-                new_company = Company()
-                for field in company._meta.fields:
-                    if not field.primary_key:
-                        setattr(new_company, field.name, getattr(company, field.name))
-                new_company.save()
-                company.delete()
+            approve_pending_companies(unique_only=False)
             message = "Uploaded All Companies"
         # Add only unique companies
         elif "add-unique" in request.POST:
-            for company in companies:
-                dup = Company.objects.filter(Name = company.Name).all()
-                if not dup:
-                    new_company = Company()
-                    for field in company._meta.fields:
-                        if not field.primary_key:
-                            setattr(new_company, field.name, getattr(company, field.name))
-                    new_company.save()
-                company.delete()
+            approve_pending_companies(unique_only=True)
             message = "Uploaded Unique Companies"
         # Upload Nothing
         elif "cancel" in request.POST:
             companies.delete()
             message = "Canceled File Upload"
-
-        UploadIndex.objects.all().delete()
+            UploadIndex.objects.all().delete()
+        else:
+            UploadIndex.objects.all().delete()
         messages.info(request, message)
         return redirect("/companies")
-    data = []
-    for company in companies:
-        record = {}
-        record["company"] = company
-        dup = Company.objects.filter(Name = company.Name).all()
-        record["duplicate"] = True if dup else False
-        data.append(record)
+    duplicate = Company.objects.filter(Name=models.OuterRef("Name"))
+    preview = companies.annotate(
+        duplicate=models.Exists(duplicate),
+    ).only("Name")
+    page = Paginator(preview, UPLOAD_WIZARD_PAGE_SIZE).get_page(
+        request.GET.get("page")
+    )
 
-    return render(request, "upload_wizard.html", {"data": data})
+    return render(request, "upload_wizard.html", {"data": page})
 
 @staff_member_required
 def upload_file(request: HttpRequest) -> HttpResponse:
@@ -147,30 +142,25 @@ def upload_file(request: HttpRequest) -> HttpResponse:
     """
     if request.method == "POST":
         form = UploadFileForm(request.POST, request.FILES)
-        try:
-            if form.is_valid():
-                file = request.FILES["file"]
-                df = pd.read_csv(file)
-                df = df.replace({np.nan: ''})
-                frames = df.to_dict("records")
-                for frame in frames:
-                    frame["Status"] = Status.objects.get(id = frame["Status"])
-                    frame["Industry"] = Industry.objects.get(id = frame["Industry"])
-                    frame["Grower"] = Grower.objects.get(id = frame["Grower"])
-                    model = PendingCompany(**frame)
-                    model.save()
-                    if (model.id):
-                        upload = UploadIndex(pendingID = model.id)
-                        upload.save()
-                return redirect("/upload_wizard")
-        except:  # noqa: E722
-            messages.error(request, 'There was an error with the file upload') 
-            return redirect("/companies")
-                
-    else:
-        form = UploadFileForm()
-
-    return render(request, "upload.html", {"form": form})
+        if form.is_valid():
+            uploaded_file = form.cleaned_data["file"]
+            try:
+                dataframe = read_upload_dataframe(uploaded_file)
+                import_pending_companies(dataframe)
+            except UploadValidationError as error:
+                logger.warning("Company upload rejected for %s: %s", uploaded_file.name, error)
+                messages.error(request, f"Upload failed: {error}")
+                return redirect("companies")
+            except Exception:
+                logger.exception("Unexpected company upload failure for %s", uploaded_file.name)
+                messages.error(
+                    request,
+                    "Upload failed unexpectedly. Check the file format or contact an administrator.",
+                )
+                return redirect("companies")
+            return redirect("upload-wizard")
+        messages.error(request, "Upload failed: select a CSV or XLSX file to upload.")
+    return redirect("companies")
 
 def index(request: HttpRequest) -> HttpResponse:
     """
@@ -382,10 +372,9 @@ def edit_company(request: HttpRequest, id: int) -> HttpResponse:
 
     if request.POST and form.is_valid():
         company_edit = form.save(commit=False)
-        new_company = PendingCompany()
-        for field in new_company._meta.fields:
-            if not field.primary_key:
-                setattr(new_company, field.name, getattr(company_edit, field.name))
+        new_company = PendingCompany(
+            **company_edit.shared_concrete_field_values(PendingCompany)
+        )
 
         # If location fields have changed, geocode new lat/lng
         location_changed = check_if_location_edited(original_company, new_company)

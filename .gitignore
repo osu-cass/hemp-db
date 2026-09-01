@@ -8,6 +8,7 @@
 *.sql
 !docker/mysql/*.sql
 /venv
+/.venv/
 grep
 hempdb-creds.txt
 docker/secrets/

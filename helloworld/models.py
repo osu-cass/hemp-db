@@ -192,6 +192,19 @@ class CompanyDetail(models.Model):
     dateCreated = models.DateTimeField(default=timezone.now, blank=False) # default set to 1/1/2024 (12/31/2023 4pm PST); arbitrary date to fill the entry
     lastUpdated = models.DateTimeField(auto_now=True, blank=False)
 
+    def shared_concrete_field_values(self, target_model, *, excluded_fields=()):
+        """Return non-primary-key values shared with another company model."""
+        target_field_names = {
+            field.attname for field in target_model._meta.concrete_fields
+        }
+        return {
+            field.attname: getattr(self, field.attname)
+            for field in self._meta.concrete_fields
+            if not field.primary_key
+            and field.name not in excluded_fields
+            and field.attname in target_field_names
+        }
+
     #
     # Overriding the save function
     # Necessary to autofill entries missing 'lastUpdated' field with the 'dateCreated' field
@@ -208,6 +221,9 @@ class CompanyDetail(models.Model):
 
 class PendingCompany(CompanyDetail):
 
+    # Correlation token for bulk-imported rows; cleared once an import commits.
+    import_batch_id = models.UUIDField(null=True, blank=True, db_index=True, editable=False)
+
     class Meta:
         db_table = "pending_company"
 
@@ -218,6 +234,7 @@ class Company(CompanyDetail):
     pendingChanges = models.ManyToManyField(PendingCompany, through="PendingChanges")
     class Meta:
         db_table = "company"
+        indexes = [models.Index(fields=["Name"], name="company_name_idx")]
 
         verbose_name = "Company"
         verbose_name_plural = "Companies"
