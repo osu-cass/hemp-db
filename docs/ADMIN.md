@@ -34,6 +34,47 @@ The public map remains available without signing in. My Changes shows only the c
 
 In Django Admin, the two company permissions belong to Company. The metadata permission belongs to Category and covers Create and Delete across all reference tables.
 
+To assign access, open Admin > Groups, assign the permissions above, and add
+users to that group. Run `python manage.py audit_access` before and after an
+access review. The command is read-only and reports flags, group names,
+and effective feature permissions. Active Staff users can open `/admin/`.
+Their assigned model permissions control what they can access there.
+Superusers have every permission, while inactive and non-Staff users cannot
+enter Django Admin.
+
+### Local permission test users
+
+The local seed command can create one account for each access boundary without
+loading CSV data:
+
+```sh
+docker compose exec app python manage.py seed_test_users
+```
+
+This command refuses to run unless `DEBUG=true`. All five accounts use the
+password from `DEV_SEED_PASSWORD`, which defaults to `hempdb-dev` for local
+development.
+
+| Username | Expected access |
+|---|---|
+| `test_superuser` | Active Staff and Superuser; full application and admin access |
+| `test_staff` | Staff only; no admin, model, or feature permissions |
+| `test_editor` | Researcher permissions for company proposals and uploads |
+| `test_reviewer` | Data Manager permissions for pending changes and uploads |
+| `test_readonly` | Company viewing only |
+
+Rerunning the command restores these accounts to the declared flags, groups,
+permissions, active state, and shared password. It does not change other users.
+
+### Spreadsheet uploads
+
+Users with `helloworld.upload_company_data` stage spreadsheets. Each upload
+gets its own batch and remains separate from every other upload. Researchers
+see their own batches and can inspect their status. Users with
+`helloworld.review_company_upload` see pending batches from all uploaders and
+are the only users who can approve all rows, approve unique rows, or cancel a
+batch.
+
 ## User Management: Django Admin Portal
 
 Once logged in, staff users have the ability to access Django's admin portal by clicking on the "Admin" link in the username dropdown.
