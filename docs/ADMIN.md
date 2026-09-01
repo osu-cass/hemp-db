@@ -47,6 +47,30 @@ Their assigned model permissions control what they can access there.
 Superusers have every permission, while inactive and non-Staff users cannot
 enter Django Admin.
 
+### Local permission test users
+
+The local seed command can create one account for each access boundary without
+loading CSV data:
+
+```sh
+docker compose exec app python manage.py seed_test_users
+```
+
+This command refuses to run unless `DEBUG=true`. All five accounts use the
+password from `DEV_SEED_PASSWORD`, which defaults to `hempdb-dev` for local
+development.
+
+| Username | Expected access |
+|---|---|
+| `test_superuser` | Active Staff and Superuser; full application and admin access |
+| `test_staff` | Staff only; no admin, model, or feature permissions |
+| `test_editor` | Researcher permissions for company proposals and uploads |
+| `test_reviewer` | Data Manager permissions for pending changes and uploads |
+| `test_readonly` | Company viewing only |
+
+Rerunning the command restores these accounts to the declared flags, groups,
+permissions, active state, and shared password. It does not change other users.
+
 ### Spreadsheet uploads
 
 Users with `helloworld.upload_company_data` stage spreadsheets. Each upload
