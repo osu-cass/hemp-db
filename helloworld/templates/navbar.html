@@ -44,10 +44,12 @@
         <li class="nav-item">
           <a class="nav-link link-light px-3 text-light" href="/map">Map</a>
         </li>
-        {% if user.is_staff %}
+        {% if perms.helloworld.review_pending_change %}
           <li class="nav-item">
             <a class="nav-link link-light px-3 text-light" href="/changes">Changes</a>
           </li>
+        {% endif %}
+        {% if perms.helloworld.upload_company_data or perms.helloworld.review_company_upload %}
           <li class="nav-item">
             <a class="nav-link link-light px-3 text-light" href="/upload_wizard">Uploads</a>
           </li>
@@ -59,8 +61,10 @@
             Hello, {{ user.get_username }}
           </a>
           <div class="dropdown-menu dropdown-menu-end" aria-labelledby="navbarDropdown">
-            {% if user.is_staff %}
+            {% if user.is_active and user.is_superuser %}
               <a class="dropdown-item" href="/admin">Admin</a>
+            {% endif %}
+            {% if perms.helloworld.review_pending_change %}
               <a class="dropdown-item" href="/changes">Review Changes</a>
             {% endif %}
             <a class="dropdown-item" href="/my_changes">My Changes</a>

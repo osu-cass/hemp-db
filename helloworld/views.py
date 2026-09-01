@@ -30,10 +30,11 @@ from .models import Grower
 from .models import Industry
 from .models import Status
 from .models import Resources
-from .models import UploadIndex
+from .models import CompanyUploadBatch
 from .upload import (
     UploadValidationError,
     approve_pending_companies,
+    cancel_upload_batch,
     import_pending_companies,
     read_upload_dataframe,
 )
@@ -44,19 +45,30 @@ from django.contrib.auth import login, get_user_model
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.decorators import permission_required
 from django.contrib.auth.models import Permission
-from django.contrib.admin.views.decorators import staff_member_required
+from django.core.exceptions import PermissionDenied
+from django.db import transaction
+from django.db.models import Q
+from django.views.decorators.http import require_http_methods, require_POST
 from django.contrib.contenttypes.models import ContentType
 from django.forms.models import model_to_dict
 from django.contrib import messages
 from django.http import HttpResponse, HttpRequest
-from django.core.exceptions import PermissionDenied
-from django.views.decorators.http import require_POST
 from django.utils.http import urlsafe_base64_decode
 from django.utils.encoding import force_str
 from django.contrib.auth.tokens import default_token_generator
 from django.core.cache import cache
 from django.core.paginator import Paginator
 from django.conf import settings
+from .permissions import (
+    REVIEW_COMPANY_UPLOAD,
+    REVIEW_PENDING_CHANGE,
+    SUBMIT_COMPANY_CHANGE,
+    UPLOAD_COMPANY_DATA,
+    can_view_pending_change,
+    has_feature_permission,
+    require_feature_permission,
+    require_permission,
+)
 
 import csv
 import geocoder
@@ -72,52 +84,71 @@ logger = logging.getLogger(__name__)
 UPLOAD_WIZARD_PAGE_SIZE = 100
 
 
-def _require_permission(request: HttpRequest, permission: str) -> None:
-    """Raise HTTP 403 unless the current user has the named app permission."""
-    if not request.user.has_perm(f"helloworld.{permission}"):
+def _visible_upload_batches(user):
+    """Return upload batches visible to a user under their effective permissions."""
+    can_review = has_feature_permission(user, REVIEW_COMPANY_UPLOAD)
+    can_upload = has_feature_permission(user, UPLOAD_COMPANY_DATA)
+    if not (can_review or can_upload):
         raise PermissionDenied
 
+    batches = CompanyUploadBatch.objects.order_by("-created_at")
+    if can_review and can_upload:
+        return batches.filter(
+            Q(uploader=user) | Q(status=CompanyUploadBatch.Status.PENDING)
+        ).distinct()
+    if can_review:
+        return batches.filter(status=CompanyUploadBatch.Status.PENDING)
+    return batches.filter(uploader=user)
 
-def _require_view_or_add_permission(
-    request: HttpRequest, add_permission: str, view_permission: str
-) -> None:
-    """Require the add permission for POSTs and view permission otherwise."""
-    permission = add_permission if request.method == "POST" else view_permission
-    _require_permission(request, permission)
 
-@staff_member_required
+@login_required
 def upload_wizard(request: HttpRequest) -> HttpResponse:
-    """
-    Staff Route. Presents the user with all uploaded companies, indicating duplicates, and more.
-    Once approved, companies will be uploaded to Companies
+    """List spreadsheet upload batches visible to the current user."""
+    if request.method != "GET":
+        return HttpResponse(status=405)
+    batches = _visible_upload_batches(request.user)
+    return render(request, "upload_wizard.html", {"batches": batches})
 
-    Parameters:
-    request (HttpRequest): incoming HTTP request
 
-    Returns:
-    response (HttpResponse): HTTP response redirecting to companies page table
-    """
-    index = UploadIndex.objects.values_list("pendingID", flat=True)
-    companies = PendingCompany.objects.filter(pk__in=index).order_by("pk")
-    message = ""
+@login_required
+def upload_batch_detail(request: HttpRequest, batch_id) -> HttpResponse:
+    """Preview or finalize one upload batch visible to the current user."""
+    batches = _visible_upload_batches(request.user)
+    batch = batches.filter(pk=batch_id).first()
+    if batch is None and request.method == "POST" and has_feature_permission(
+        request.user, REVIEW_COMPANY_UPLOAD
+    ):
+        # Preserve the conflict response for a batch already finalized by a reviewer.
+        batch = CompanyUploadBatch.objects.filter(pk=batch_id).first()
+    if batch is None:
+        raise PermissionDenied
+
     if request.method == "POST":
-        # Add all companies
+        if not has_feature_permission(request.user, REVIEW_COMPANY_UPLOAD):
+            raise PermissionDenied
         if "add-all" in request.POST:
-            approve_pending_companies(unique_only=False)
+            approved = approve_pending_companies(
+                unique_only=False, batch=batch, reviewer=request.user
+            )
             message = "Uploaded All Companies"
-        # Add only unique companies
         elif "add-unique" in request.POST:
-            approve_pending_companies(unique_only=True)
+            approved = approve_pending_companies(
+                unique_only=True, batch=batch, reviewer=request.user
+            )
             message = "Uploaded Unique Companies"
-        # Upload Nothing
         elif "cancel" in request.POST:
-            companies.delete()
+            approved = cancel_upload_batch(batch, request.user)
             message = "Canceled File Upload"
-            UploadIndex.objects.all().delete()
         else:
-            UploadIndex.objects.all().delete()
+            return HttpResponse(status=400)
+        if approved is None or approved is False:
+            return HttpResponse(status=409)
         messages.info(request, message)
         return redirect("/companies")
+    if request.method != "GET":
+        return HttpResponse(status=405)
+
+    companies = PendingCompany.objects.filter(upload_batch=batch).order_by("pk")
     duplicate = Company.objects.filter(Name=models.OuterRef("Name"))
     preview = companies.annotate(
         duplicate=models.Exists(duplicate),
@@ -125,14 +156,13 @@ def upload_wizard(request: HttpRequest) -> HttpResponse:
     page = Paginator(preview, UPLOAD_WIZARD_PAGE_SIZE).get_page(
         request.GET.get("page")
     )
+    return render(request, "upload_wizard.html", {"data": page, "batch": batch})
 
-    return render(request, "upload_wizard.html", {"data": page})
-
-@staff_member_required
+@require_feature_permission(UPLOAD_COMPANY_DATA)
+@require_POST
 def upload_file(request: HttpRequest) -> HttpResponse:
     """
-    Staff route. Should only be used in emergencies (not secure). 
-    Uses pandas to parse uploaded file, saves company data straight to Companies table
+    Stage a spreadsheet for later review instead of writing directly to Company.
 
     Parameters:
     request (HttpRequest): incoming HTTP request containing file
@@ -146,7 +176,11 @@ def upload_file(request: HttpRequest) -> HttpResponse:
             uploaded_file = form.cleaned_data["file"]
             try:
                 dataframe = read_upload_dataframe(uploaded_file)
-                import_pending_companies(dataframe)
+                with transaction.atomic():
+                    batch = CompanyUploadBatch.objects.create(
+                        uploader=request.user, original_filename=uploaded_file.name
+                    )
+                    import_pending_companies(dataframe, batch=batch)
             except UploadValidationError as error:
                 logger.warning("Company upload rejected for %s: %s", uploaded_file.name, error)
                 messages.error(request, f"Upload failed: {error}")
@@ -291,7 +325,12 @@ def companies(request: HttpRequest) -> HttpResponse:
     Returns:
     response (HttpResponse): HTTP response containing companies page template, PendingCompanyForm, SearchForm
     """
-    _require_view_or_add_permission(request, 'add_pendingcompany', 'view_company')
+    if request.method == "POST":
+        require_permission(request, SUBMIT_COMPANY_CHANGE)
+    elif request.method == "GET":
+        require_permission(request, "view_company")
+    else:
+        return HttpResponse(status=405)
 
     try:
         page = int(request.GET.get('page', 1))
@@ -351,10 +390,10 @@ def companies(request: HttpRequest) -> HttpResponse:
                                               'filterSolutionForm': filterSolutionForm
                                               })
 
-@staff_member_required
+@require_feature_permission(SUBMIT_COMPANY_CHANGE)
 def edit_company(request: HttpRequest, id: int) -> HttpResponse:
     """
-    Protected Route. Handles edit action for Companies
+    Handles an edit proposal for a Company.
     for POST requests, saves form data as PendingCompany, creates PendingChange with type 'edit'
     for GET requests, returns edit form, company data, edit_companies template
 
@@ -365,6 +404,9 @@ def edit_company(request: HttpRequest, id: int) -> HttpResponse:
     Returns:
     response (HttpResponse): HTTP response containing company editpage template and PendingCompanyForm
     """
+
+    if request.method not in {"GET", "POST"}:
+        return HttpResponse(status=405)
 
     company = Company.objects.get(id = id)
     original_company = deepcopy(company) # Deep copy original data for location comparison
@@ -464,7 +506,7 @@ def view_company(request: HttpRequest, id: int) -> HttpResponse:
 @login_required
 def view_company_pending(request: HttpRequest, id: int) -> HttpResponse:
     """
-    Staff Route. Shows all column values for a single pending company, 
+    Shows all column values for a single pending company,
     as well as its change type
 
     Parameters:
@@ -485,8 +527,8 @@ def view_company_pending(request: HttpRequest, id: int) -> HttpResponse:
     
     # Redirect if user is not the author of the change and the user isn't staff
     # - Prevents people from manually typing in change IDs in the URL, but also lets staff see any ID
-    if (request.user != obj.author) and not request.user.is_staff:
-        return redirect('index')
+    if not can_view_pending_change(request.user, obj):
+        raise PermissionDenied
     
     if(obj.changeType == "edit"):
         company = obj.company
@@ -544,22 +586,23 @@ def view_company_pending(request: HttpRequest, id: int) -> HttpResponse:
     elif(obj.changeType == "deletion"):
         company = obj.company
 
-        for field in company._meta.get_fields():    
-            if not hasattr(field, 'attname') and not isinstance(field, models.ManyToManyField):
-                continue
-            if field.name == "id":
-                continue
+        if company is not None:
+            for field in company._meta.get_fields():
+                if not hasattr(field, 'attname') and not isinstance(field, models.ManyToManyField):
+                    continue
+                if field.name == "id":
+                    continue
 
-            field_name = field.name
+                field_name = field.name
 
-            if isinstance(field, models.ManyToManyField):
-                # Get the list of related object IDs for both company and pending company
-                pending_values = [str(obj) for obj in getattr(company, field_name).all()]
-            else:
-                # For regular fields
-                pending_values = getattr(company, field_name, None)
+                if isinstance(field, models.ManyToManyField):
+                    # Get the list of related object IDs for both company and pending company
+                    pending_values = [str(obj) for obj in getattr(company, field_name).all()]
+                else:
+                    # For regular fields
+                    pending_values = getattr(company, field_name, None)
 
-            fields.append((field_name, pending_values))
+                fields.append((field_name, pending_values))
 
             context = {
                 'fields': fields
@@ -569,11 +612,11 @@ def view_company_pending(request: HttpRequest, id: int) -> HttpResponse:
 
     return render(request, 'company_view_pending.html', {'context': context, 'change': obj})
 
-@staff_member_required
+@require_feature_permission(REVIEW_PENDING_CHANGE)
 @require_POST
-def view_company_approve(_request: HttpRequest, id: int) -> HttpResponse:
+def view_company_approve(request: HttpRequest, id: int) -> HttpResponse:
     """
-    Staff Route. Handles approval of a PendingChange for companies
+    Approves a PendingChange for companies.
     if changeType is deletion, company is deleted from PendingCompanies
     if changeType is create, company is copied from PendingCompanies into Companies table
     if changeType is edit, company in Companies table is edited with all values from PendingCompany
@@ -586,52 +629,60 @@ def view_company_approve(_request: HttpRequest, id: int) -> HttpResponse:
     Returns:
     response (HttpResponse): HTTP response redirecting to /companies view
     """
-    change = PendingChanges.objects.get(id=id)
-    if change.changeType == 'deletion':
-        
-        change.status = PendingChanges.PendingStatus.APPROVED
-        change.save()
+    with transaction.atomic():
+        change = PendingChanges.objects.select_for_update().select_related("company", "pending_company").get(id=id)
+        if change.status != PendingChanges.PendingStatus.PENDING:
+            return HttpResponse(status=409)
+        if change.changeType == 'deletion':
+            company = Company.objects.get(id=change.company.id)
+            change.status = PendingChanges.PendingStatus.APPROVED
+            # Keep the decided record so a repeated request returns 409.
+            change.company = None
+            change.save(update_fields=["status", "company"])
+            company.delete()
 
-        company = Company.objects.get(id = change.company.id)
-        company.delete()
+            return redirect('/changes')
+    
+        pendingCompany = PendingCompany.objects.select_for_update().get(
+            id=change.pending_company.id
+        )
+        if change.changeType == 'create':
+            new_company = Company(
+                **pendingCompany.shared_concrete_field_values(
+                    Company, excluded_fields={"lastUpdated"}
+                ),
+                lastUpdated=pendingCompany.lastUpdated,
+            )
+            new_company.save()
+
+            # Copy over m2m values
+            for field in pendingCompany._meta.many_to_many:
+                m2m_values = getattr(pendingCompany, field.name).all()
+                getattr(new_company, field.name).set(m2m_values)
+
+        if change.changeType == 'edit':
+            company = Company.objects.get(id = change.company.id)
+            for field_name, value in pendingCompany.shared_concrete_field_values(
+                Company, excluded_fields={"lastUpdated"}
+            ).items():
+                setattr(company, field_name, value)
+            company.save()
+
+            # Copy over m2m values
+            for field in pendingCompany._meta.many_to_many:
+                m2m_values = getattr(pendingCompany, field.name).all()
+                getattr(company, field.name).set(m2m_values)
+
+        change.status = PendingChanges.PendingStatus.APPROVED
+        change.save(update_fields=["status"])
 
         return redirect('/changes')
-    
-    pendingCompany = PendingCompany.objects.get(id = change.pending_company.id)
-    if change.changeType == 'create':
-        new_company = Company()
-        for field in pendingCompany._meta.fields:
-            if not field.primary_key:
-                setattr(new_company, field.name, getattr(pendingCompany, field.name))
-        new_company.save()
 
-        # Copy over m2m values
-        for field in pendingCompany._meta.many_to_many:
-            m2m_values = getattr(pendingCompany, field.name).all()
-            getattr(new_company, field.name).set(m2m_values)
-
-    if change.changeType == 'edit':
-        company = Company.objects.get(id = change.company.id)
-        for field in pendingCompany._meta.fields:
-            if not field.primary_key:
-                setattr(company, field.name, getattr(pendingCompany, field.name))
-        company.save()
-
-        # Copy over m2m values
-        for field in pendingCompany._meta.many_to_many:
-            m2m_values = getattr(pendingCompany, field.name).all()
-            getattr(company, field.name).set(m2m_values)
-
-    change.status = PendingChanges.PendingStatus.APPROVED
-    change.save()
-
-    return redirect('/changes')
-
-@staff_member_required
+@require_feature_permission(REVIEW_PENDING_CHANGE)
 @require_POST
 def view_company_reject(_request: HttpRequest, id: int) -> HttpResponse:
     """
-    Staff Route. Triggered when admin clicks "Reject" in company_view_pending
+    Rejects a pending company change.
 
     Parameters:
     request (HttpRequest): incoming HTTP request
@@ -640,10 +691,17 @@ def view_company_reject(_request: HttpRequest, id: int) -> HttpResponse:
     Returns:
     response (HttpResponse): HTTP response redirecting to PendingChanges view
     """
-    change = PendingChanges.objects.get(id=id)
+    with transaction.atomic():
+        change = PendingChanges.objects.select_for_update().get(id=id)
+        if change.status != PendingChanges.PendingStatus.PENDING:
+            return HttpResponse(status=409)
+        if change.pending_company_id:
+            PendingCompany.objects.select_for_update().filter(
+                pk=change.pending_company_id
+            ).first()
 
-    change.status = PendingChanges.PendingStatus.REJECTED
-    change.save()
+        change.status = PendingChanges.PendingStatus.REJECTED
+        change.save(update_fields=["status"])
 
     return redirect('/changes')
 
@@ -659,7 +717,7 @@ def companies_filtered(request: HttpRequest) -> HttpResponse:
     Returns:
     response (HttpResponse): HTTP response containing company page template and filtered company data
     """
-    _require_permission(request, "view_company")
+    require_permission(request, "view_company")
 
     query = None
     companies = Company.objects.select_related('Industry', 'Status').prefetch_related('Solutions', 'Category', 'stakeholderGroup', 'productGroup', 'Stage')
@@ -736,11 +794,11 @@ def companies_filtered(request: HttpRequest) -> HttpResponse:
                                               'filterSolutionForm': filterSolutionForm
                                               })
 
-@staff_member_required
+@require_feature_permission(SUBMIT_COMPANY_CHANGE)
 @require_POST
 def remove_companies(request: HttpRequest, id: int) -> HttpResponse:
     """
-    Staff Route. Adds deletion to PendingChanges
+    Adds a company deletion proposal to PendingChanges.
 
     Parameters:
     request (HttpRequest): incoming HTTP request
@@ -757,7 +815,8 @@ def remove_companies(request: HttpRequest, id: int) -> HttpResponse:
 
     return redirect('/companies')
 
-@permission_required("helloworld.view_company")
+@login_required
+@permission_required("helloworld.view_company", raise_exception=True)
 def export_companies(request: HttpRequest) -> HttpResponse:
     """
     Staff Route. Exports all data or filtered data from Company table
@@ -809,6 +868,8 @@ def export_companies(request: HttpRequest) -> HttpResponse:
 
     return response
 
+@login_required
+@require_http_methods(["GET", "POST"])
 def categories(request: HttpRequest) -> HttpResponse:
     """
     Protected Route. Shows all categories from Category table
@@ -820,7 +881,10 @@ def categories(request: HttpRequest) -> HttpResponse:
     Returns:
     response (HttpResponse): HTTP response containing category data
     """
-    _require_view_or_add_permission(request, 'add_category', 'view_category')
+    require_permission(
+        request,
+        'add_category' if request.method == 'POST' else 'view_category',
+    )
 
     categories = Category.objects.all()
     if request.method == 'POST':
@@ -831,9 +895,10 @@ def categories(request: HttpRequest) -> HttpResponse:
     else:
         form = CategoryForm()
 
-    return render(request, 'categories.html', {'form': form, 'data': categories, 'type': 'category', 'delete_url': 'remove_categories'})
+    return render(request, 'categories.html', {'form': form, 'data': categories, 'type': 'category', 'delete_url': 'remove_categories', 'can_delete': request.user.has_perm('helloworld.delete_category')})
 
-@staff_member_required
+@login_required
+@permission_required("helloworld.delete_category", raise_exception=True)
 @require_POST
 def remove_categories(_request: HttpRequest, id: int) -> HttpResponse:
     """
@@ -850,7 +915,8 @@ def remove_categories(_request: HttpRequest, id: int) -> HttpResponse:
     category.delete()
     return redirect('/categories')
 
-@permission_required("helloworld.view_category")
+@login_required
+@permission_required("helloworld.view_category", raise_exception=True)
 def export_categories(_request: HttpRequest) -> HttpResponse:
     """
     Staff Route. Exports all entries in Category table to csv
@@ -873,6 +939,8 @@ def export_categories(_request: HttpRequest) -> HttpResponse:
 
     return response
 
+@login_required
+@require_http_methods(["GET", "POST"])
 def solutions(request: HttpRequest) -> HttpResponse:
     """
     Protected Route. Shows all solutions from Solution table
@@ -884,7 +952,10 @@ def solutions(request: HttpRequest) -> HttpResponse:
     Returns:
     response (HttpResponse): HTTP response containing solution data
     """
-    _require_view_or_add_permission(request, 'add_solution', 'view_solution')
+    require_permission(
+        request,
+        'add_solution' if request.method == 'POST' else 'view_solution',
+    )
 
     solutions = Solution.objects.all()
     if request.method == 'POST':
@@ -895,9 +966,10 @@ def solutions(request: HttpRequest) -> HttpResponse:
     else:
         form = SolutionForm()
 
-    return render(request, 'solutions.html', {'form': form, 'data': solutions, 'type': 'solution', 'delete_url': 'remove_solutions'})
+    return render(request, 'solutions.html', {'form': form, 'data': solutions, 'type': 'solution', 'delete_url': 'remove_solutions', 'can_delete': request.user.has_perm('helloworld.delete_solution')})
 
-@staff_member_required
+@login_required
+@permission_required("helloworld.delete_solution", raise_exception=True)
 @require_POST
 def remove_solutions(_request: HttpRequest, id: int):
     """
@@ -914,7 +986,8 @@ def remove_solutions(_request: HttpRequest, id: int):
     solution.delete()
     return redirect('/solutions')
 
-@permission_required("helloworld.view_solution")
+@login_required
+@permission_required("helloworld.view_solution", raise_exception=True)
 def export_solutions(_request: HttpRequest) -> HttpResponse:
     """
     Staff Route. Exports all entries in Solutions table to csv
@@ -937,6 +1010,8 @@ def export_solutions(_request: HttpRequest) -> HttpResponse:
 
     return response
 
+@login_required
+@require_http_methods(["GET", "POST"])
 def StakeholderGroups(request: HttpRequest) -> HttpResponse:
     """
     Protected Route. Shows all entries from stakeholderGroups table
@@ -948,8 +1023,11 @@ def StakeholderGroups(request: HttpRequest) -> HttpResponse:
     Returns:
     response (HttpResponse): HTTP response containing stakeholderGroups data
     """
-    _require_view_or_add_permission(
-        request, 'add_stakeholdergroups', 'view_stakeholdergroups'
+    require_permission(
+        request,
+        'add_stakeholdergroups'
+        if request.method == 'POST'
+        else 'view_stakeholdergroups',
     )
 
     groups = stakeholderGroups.objects.all()
@@ -961,9 +1039,10 @@ def StakeholderGroups(request: HttpRequest) -> HttpResponse:
     else:
         form = stakeholderGroupsForm()
 
-    return render(request, 'stakeholderGroups.html', {'form': form, 'type': 'stakeholderGroup', 'data': groups, 'delete_url': 'remove_stakeholder_groups' })
+    return render(request, 'stakeholderGroups.html', {'form': form, 'type': 'stakeholderGroup', 'data': groups, 'delete_url': 'remove_stakeholder_groups', 'can_delete': request.user.has_perm('helloworld.delete_stakeholdergroups') })
 
-@staff_member_required
+@login_required
+@permission_required("helloworld.delete_stakeholdergroups", raise_exception=True)
 @require_POST
 def remove_stakeholder_groups(_request: HttpRequest, id: int) -> HttpResponse:
     """
@@ -980,7 +1059,8 @@ def remove_stakeholder_groups(_request: HttpRequest, id: int) -> HttpResponse:
     group.delete()
     return redirect('/stakeholder-groups')
 
-@permission_required("helloworld.view_stakeholdergroups")
+@login_required
+@permission_required("helloworld.view_stakeholdergroups", raise_exception=True)
 def export_stakeholder_groups(_request: HttpRequest) -> HttpResponse:
     """
     Staff Route. Exports all entries in stakeholderGroups table to csv
@@ -1003,6 +1083,8 @@ def export_stakeholder_groups(_request: HttpRequest) -> HttpResponse:
 
     return response
 
+@login_required
+@require_http_methods(["GET", "POST"])
 def stages(request: HttpRequest) -> HttpResponse:
     """
     Protected Route. Shows all entries from Stage table
@@ -1014,7 +1096,10 @@ def stages(request: HttpRequest) -> HttpResponse:
     Returns:
     response (HttpResponse): HTTP response containing Stage data
     """
-    _require_view_or_add_permission(request, 'add_stage', 'view_stage')
+    require_permission(
+        request,
+        'add_stage' if request.method == 'POST' else 'view_stage',
+    )
 
     stages = Stage.objects.all()
     if request.method == 'POST':
@@ -1025,9 +1110,10 @@ def stages(request: HttpRequest) -> HttpResponse:
     else:
         form = StageForm()
 
-    return render(request, 'stages.html', {'form': form, 'data': stages, 'type': 'stage', 'delete_url': 'remove_stages'})
+    return render(request, 'stages.html', {'form': form, 'data': stages, 'type': 'stage', 'delete_url': 'remove_stages', 'can_delete': request.user.has_perm('helloworld.delete_stage')})
 
-@staff_member_required
+@login_required
+@permission_required("helloworld.delete_stage", raise_exception=True)
 @require_POST
 def remove_stages(_request: HttpRequest, id: int) -> HttpResponse:
     """
@@ -1044,7 +1130,8 @@ def remove_stages(_request: HttpRequest, id: int) -> HttpResponse:
     stage.delete()
     return redirect('/stages')
 
-@permission_required("helloworld.view_stage")
+@login_required
+@permission_required("helloworld.view_stage", raise_exception=True)
 def export_stages(_request: HttpRequest) -> HttpResponse:
     """
     Staff Route. Exports all entries in Stage table to csv
@@ -1067,6 +1154,8 @@ def export_stages(_request: HttpRequest) -> HttpResponse:
 
     return response
 
+@login_required
+@require_http_methods(["GET", "POST"])
 def productGroups(request: HttpRequest) -> HttpResponse:
     """
     Protected Route. Shows all entries from productGroup table
@@ -1078,8 +1167,11 @@ def productGroups(request: HttpRequest) -> HttpResponse:
     Returns:
     response (HttpResponse): HTTP response containing productGroup data
     """
-    _require_view_or_add_permission(
-        request, 'add_productgroup', 'view_productgroup'
+    require_permission(
+        request,
+        'add_productgroup'
+        if request.method == 'POST'
+        else 'view_productgroup',
     )
 
     groups = ProductGroup.objects.all()
@@ -1091,9 +1183,10 @@ def productGroups(request: HttpRequest) -> HttpResponse:
     else:
         form = ProductGroupForm()
 
-    return render(request, 'productGroups.html', {'form': form, 'data': groups, 'type': 'productGroups', 'delete_url': 'remove_product_group'})
+    return render(request, 'productGroups.html', {'form': form, 'data': groups, 'type': 'productGroups', 'delete_url': 'remove_product_group', 'can_delete': request.user.has_perm('helloworld.delete_productgroup')})
 
-@staff_member_required
+@login_required
+@permission_required("helloworld.delete_productgroup", raise_exception=True)
 @require_POST
 def remove_product_groups(_request: HttpRequest, id: int) -> HttpResponse:
     """
@@ -1110,7 +1203,8 @@ def remove_product_groups(_request: HttpRequest, id: int) -> HttpResponse:
     group.delete()
     return redirect('/product-groups')
 
-@permission_required("helloworld.view_productgroup")
+@login_required
+@permission_required("helloworld.view_productgroup", raise_exception=True)
 def export_product_groups(_request: HttpRequest) -> HttpResponse:
     """
     Staff Route. Exports all entries in ProductGroup table to csv
@@ -1133,6 +1227,8 @@ def export_product_groups(_request: HttpRequest) -> HttpResponse:
 
     return response
 
+@login_required
+@require_http_methods(["GET", "POST"])
 def status(request: HttpRequest) -> HttpResponse:
     """
     Protected Route. Shows all entries from Status table
@@ -1144,7 +1240,10 @@ def status(request: HttpRequest) -> HttpResponse:
     Returns:
     response (HttpResponse): HTTP response containing Status data
     """
-    _require_view_or_add_permission(request, 'add_status', 'view_status')
+    require_permission(
+        request,
+        'add_status' if request.method == 'POST' else 'view_status',
+    )
 
     status = Status.objects.all()
     if request.method == 'POST':
@@ -1155,9 +1254,10 @@ def status(request: HttpRequest) -> HttpResponse:
     else:
         form = StatusForm()
 
-    return render(request, 'status.html', {'form': form, 'data': status, 'type': 'status', 'delete_url': 'remove_status'})
+    return render(request, 'status.html', {'form': form, 'data': status, 'type': 'status', 'delete_url': 'remove_status', 'can_delete': request.user.has_perm('helloworld.delete_status')})
 
-@staff_member_required
+@login_required
+@permission_required("helloworld.delete_status", raise_exception=True)
 @require_POST
 def remove_status(_request: HttpRequest, id: int) -> HttpResponse:
     """
@@ -1174,7 +1274,8 @@ def remove_status(_request: HttpRequest, id: int) -> HttpResponse:
     status.delete()
     return redirect('/status')
 
-@permission_required("helloworld.view_status")
+@login_required
+@permission_required("helloworld.view_status", raise_exception=True)
 def export_status(_request: HttpRequest) -> HttpResponse:
     """
     Staff Route. Exports all entries in Status table to csv
@@ -1197,6 +1298,8 @@ def export_status(_request: HttpRequest) -> HttpResponse:
 
     return response
 
+@login_required
+@require_http_methods(["GET", "POST"])
 def grower(request: HttpRequest) -> HttpResponse:
     """
     Protected Route. Shows all entries from Grower table
@@ -1208,7 +1311,10 @@ def grower(request: HttpRequest) -> HttpResponse:
     Returns:
     response (HttpResponse): HTTP response containing Grower data
     """
-    _require_view_or_add_permission(request, 'add_grower', 'view_grower')
+    require_permission(
+        request,
+        'add_grower' if request.method == 'POST' else 'view_grower',
+    )
 
     growers = Grower.objects.all()
     if request.method == 'POST':
@@ -1219,9 +1325,10 @@ def grower(request: HttpRequest) -> HttpResponse:
     else:
         form = GrowerForm()
 
-    return render(request, 'grower.html', {'form': form, 'data': growers, 'delete_url': 'remove_grower', 'type': 'grower'})
+    return render(request, 'grower.html', {'form': form, 'data': growers, 'delete_url': 'remove_grower', 'type': 'grower', 'can_delete': request.user.has_perm('helloworld.delete_grower')})
 
-@staff_member_required
+@login_required
+@permission_required("helloworld.delete_grower", raise_exception=True)
 @require_POST
 def remove_grower(_request: HttpRequest, id: int) -> HttpResponse:
     """
@@ -1238,7 +1345,8 @@ def remove_grower(_request: HttpRequest, id: int) -> HttpResponse:
     grower.delete()
     return redirect('/grower')
 
-@permission_required("helloworld.view_grower")
+@login_required
+@permission_required("helloworld.view_grower", raise_exception=True)
 def export_grower(_request: HttpRequest) -> HttpResponse:
     """
     Staff Route. Exports all entries in Grower table to csv
@@ -1261,6 +1369,8 @@ def export_grower(_request: HttpRequest) -> HttpResponse:
 
     return response
 
+@login_required
+@require_http_methods(["GET", "POST"])
 def industry(request: HttpRequest) -> HttpResponse:
     """
     Protected Route. Shows all entries from Industry table
@@ -1272,7 +1382,10 @@ def industry(request: HttpRequest) -> HttpResponse:
     Returns:
     response (HttpResponse): HTTP response containing Industry data
     """
-    _require_view_or_add_permission(request, 'add_industry', 'view_industry')
+    require_permission(
+        request,
+        'add_industry' if request.method == 'POST' else 'view_industry',
+    )
 
     industries = Industry.objects.all()
     if request.method == 'POST':
@@ -1283,9 +1396,10 @@ def industry(request: HttpRequest) -> HttpResponse:
     else:
         form = IndustryForm()
 
-    return render(request, 'industry.html', {'form': form, 'data': industries, 'type': 'industries', 'delete_url': 'remove_industry'})
+    return render(request, 'industry.html', {'form': form, 'data': industries, 'type': 'industries', 'delete_url': 'remove_industry', 'can_delete': request.user.has_perm('helloworld.delete_industry')})
 
-@staff_member_required
+@login_required
+@permission_required("helloworld.delete_industry", raise_exception=True)
 @require_POST
 def remove_industry(_request: HttpRequest, id: int) -> HttpResponse:
     """
@@ -1302,7 +1416,8 @@ def remove_industry(_request: HttpRequest, id: int) -> HttpResponse:
     industry.delete()
     return redirect('/industry')
 
-@permission_required("helloworld.view_industry")
+@login_required
+@permission_required("helloworld.view_industry", raise_exception=True)
 def export_industry(_request: HttpRequest) -> HttpResponse:
     """
     Staff Route. Exports all entries in Industry table to csv
@@ -1325,7 +1440,7 @@ def export_industry(_request: HttpRequest) -> HttpResponse:
 
     return response
 
-@staff_member_required
+@require_feature_permission(REVIEW_PENDING_CHANGE)
 def dbChanges(request: HttpRequest) -> HttpResponse:
     """
     Protected Route. Shows all entries from PendingChanges table
@@ -1345,7 +1460,9 @@ def dbChanges(request: HttpRequest) -> HttpResponse:
         .distinct()
     )
     edit_changes_dict = {
-        company: list(company.pendingchanges_set.filter(changeType="edit").order_by("-created_at"))
+        company: list(company.pendingchanges_set.filter(
+            changeType="edit", status=PendingChanges.PendingStatus.PENDING
+        ).order_by("-created_at"))
         for company in edit_changes
     }
 
@@ -1371,7 +1488,9 @@ def dbChanges(request: HttpRequest) -> HttpResponse:
         .distinct()
     )
     delete_changes_dict = {
-        company: list(company.pendingchanges_set.filter(changeType="deletion").order_by("-created_at"))
+        company: list(company.pendingchanges_set.filter(
+            changeType="deletion", status=PendingChanges.PendingStatus.PENDING
+        ).order_by("-created_at"))
         for company in delete_changes
     }
 
@@ -1481,7 +1600,8 @@ def map(request: HttpRequest) -> HttpResponse:
 
     return render(request, 'map.html', {'companies': processed_companies, 'filters': filter_options})
 
-@staff_member_required
+@login_required
+@permission_required("helloworld.delete_resources", raise_exception=True)
 @require_POST
 def remove_resource(request: HttpRequest, id: int) -> HttpResponse:
     """
@@ -1501,7 +1621,8 @@ def remove_resource(request: HttpRequest, id: int) -> HttpResponse:
 
     return redirect('/admin_tools')
 
-@staff_member_required
+@login_required
+@permission_required("helloworld.change_resources", raise_exception=True)
 def edit_resource(request: HttpRequest, id: int) -> HttpResponse:
     """
     Staff Route. Edit a resource from the Resources table
@@ -1513,6 +1634,9 @@ def edit_resource(request: HttpRequest, id: int) -> HttpResponse:
     Returns:
     response (HttpResponse): HTTP response redirecting admin tools remplate
     """
+
+    if request.method not in {"GET", "POST"}:
+        return HttpResponse(status=405)
 
     resource = Resources.objects.get(id = id)
     form = ResourceForm(request.POST, instance=resource)

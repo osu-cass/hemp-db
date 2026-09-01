@@ -10,7 +10,7 @@
 <div class="container" style="margin-top: 100px;">
     <h1 class="d-flex justify-content-center mb-5">{{ obj.Name }}</h1>
     <hr />
-    {% if user.is_staff %}
+    {% if perms.helloworld.submit_company_change %}
       <a type="button" class="btn btn-secondary rounded-pill mx-3 my-2 px-3" href="{% url 'edit-company' company.id %}"> Edit </a>
       <form method="post" action="{% url 'remove-company' company.id %}" class="d-inline">
         {% csrf_token %}

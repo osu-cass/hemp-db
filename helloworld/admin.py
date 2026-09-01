@@ -3,6 +3,8 @@ from django.utils.html import format_html
 from django.urls import reverse
 
 from django.contrib import admin
+from django.contrib.auth.admin import GroupAdmin, UserAdmin
+from django.contrib.auth.models import Group, User
 
 from django.contrib.admin.models import LogEntry
 
@@ -18,29 +20,45 @@ from .models import ProductGroup
 from .models import Status
 from .models import Industry
 from .models import Grower
+from .models import CompanyUploadBatch
 
 from .forms import ResourceForm
 
+
+class HempAdminSite(admin.AdminSite):
+    """Admin site restricted to active staff superusers."""
+
+    def has_permission(self, request):
+        """Require all built-in administrator flags."""
+        user = request.user
+        return user.is_active and user.is_staff and user.is_superuser
+
+
+admin_site = HempAdminSite(name="admin")
+admin.site = admin_site
+admin_site.register(User, UserAdmin)
+admin_site.register(Group, GroupAdmin)
+
 # Customize Django Administration header/title
-admin.site.site_header = "HempDB Administration"
-admin.site.site_title = "HempDB Admin Portal"
+admin_site.site_header = "HempDB Administration"
+admin_site.site_title = "HempDB Admin Portal"
 # admin.site.index_title = "HempDB Admin"
 
 # Enables the Log Entries ModelAdmin object for viewing
-admin.site.register(LogEntry)
+admin_site.register(LogEntry)
 
-# Register DB models here for staff access
+# Register DB models here for Django admin users with model permissions
 
-@admin.register(Company)
+@admin.register(Company, site=admin_site)
 class CompanyAdmin(admin.ModelAdmin):
     list_display = ["Name", "id"]
     search_fields = ["Name"]
 
-@admin.register(PendingCompany)
+@admin.register(PendingCompany, site=admin_site)
 class PendingCompanyAdmin(admin.ModelAdmin):
     pass
 
-@admin.register(PendingChanges)
+@admin.register(PendingChanges, site=admin_site)
 class PendingChangesAdmin(admin.ModelAdmin):
     list_display = ["company_link", "changeType", "author", "colored_status", "created_at_pst"]
     
@@ -89,39 +107,70 @@ class PendingChangesAdmin(admin.ModelAdmin):
 
     created_at_pst.short_description = "Created at (PST)"
 
-@admin.register(Resources)
+
+@admin.register(CompanyUploadBatch, site=admin_site)
+class CompanyUploadBatchAdmin(admin.ModelAdmin):
+    """Expose upload batches to superusers for operational inspection."""
+
+    list_display = ["id", "original_filename", "uploader", "status", "created_at", "reviewer"]
+    list_filter = ["status", "review_mode"]
+    search_fields = ["original_filename", "uploader__username", "reviewer__username"]
+    readonly_fields = [
+        "id",
+        "uploader",
+        "original_filename",
+        "status",
+        "review_mode",
+        "created_at",
+        "reviewed_at",
+        "reviewer",
+    ]
+
+    def has_add_permission(self, request):
+        """Keep upload batches created by the upload workflow."""
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        """Allow inspection without allowing batch metadata changes."""
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        """Prevent deleting batches from the administration site."""
+        return False
+
+@admin.register(Resources, site=admin_site)
 class ResourcesAdmin(admin.ModelAdmin):
     form = ResourceForm
     list_display = ["type", "title"]
 
-@admin.register(Solution)
+@admin.register(Solution, site=admin_site)
 class SolutionAdmin(admin.ModelAdmin):
     pass
 
-@admin.register(Category)
+@admin.register(Category, site=admin_site)
 class CategoryAdmin(admin.ModelAdmin):
     pass
 
-@admin.register(stakeholderGroups)
+@admin.register(stakeholderGroups, site=admin_site)
 class stakeholderGroupsAdmin(admin.ModelAdmin):
     pass
 
-@admin.register(Stage)
+@admin.register(Stage, site=admin_site)
 class StageAdmin(admin.ModelAdmin):
     pass
 
-@admin.register(ProductGroup)
+@admin.register(ProductGroup, site=admin_site)
 class ProductGroupAdmin(admin.ModelAdmin):
     pass
 
-@admin.register(Status)
+@admin.register(Status, site=admin_site)
 class StatusAdmin(admin.ModelAdmin):
     pass
 
-@admin.register(Industry)
+@admin.register(Industry, site=admin_site)
 class IndustryAdmin(admin.ModelAdmin):
     pass
 
-@admin.register(Grower)
+@admin.register(Grower, site=admin_site)
 class GrowerAdmin(admin.ModelAdmin):
     pass

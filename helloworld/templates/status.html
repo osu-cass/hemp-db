@@ -10,7 +10,7 @@
     {% if perms.helloworld.add_status %}
       <button type="button" class="btn btn-secondary rounded-pill mx-3 my-2 px-3" data-bs-toggle="modal" data-bs-target="#createModal">Create</button>
     {% endif %}
-    {% if perms.helloworld.view_productgroup %}
+    {% if perms.helloworld.view_status %}
       <a href="{% url 'export-status' %}" class="btn btn-secondary rounded-pill mx-3 my-2 px-3">Export</a>
     {% endif %}
   </div>

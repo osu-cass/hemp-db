@@ -12,7 +12,7 @@
     {% if perms.helloworld.add_grower %}
       <button type="button" class="btn btn-secondary rounded-pill mx-3 my-2 px-3" data-bs-toggle="modal" data-bs-target="#createModal">Create</button>
     {% endif %}
-    {% if user.is_staff %}
+    {% if perms.helloworld.view_grower %}
       <a href="{% url 'export-grower' %}" class="btn btn-secondary rounded-pill mx-3 my-2 px-3">Export</a>
     {% endif %}
   </div>
