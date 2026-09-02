@@ -11,6 +11,9 @@ services:
     environment:
       # The load balancer serves the UI under /mailpit on the staging host
       MP_WEBROOT: /mailpit
+      # Basic auth for the UI ("user:password"); it is reachable through the
+      # load balancer and holds every message the app sends, so keep it set.
+      MP_UI_AUTH: "${MAILPIT_UI_AUTH:-}"
     ports:
       - "${MAILPIT_PORT:-8025}:8025"
     restart: unless-stopped

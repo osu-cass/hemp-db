@@ -213,7 +213,8 @@ flowchart LR
 
 </details>
 
-Mailpit is staging-only and its web UI binds to loopback by default. Staging
+Mailpit is staging-only; its web UI is published through the load balancer
+and protected with the basic-auth credentials in `MAILPIT_UI_AUTH`. Staging
 has no phpMyAdmin and does not mount a production SMTP secret.
 
 ### Production: `compose.deploy.yaml` + `compose.prod.yaml`
