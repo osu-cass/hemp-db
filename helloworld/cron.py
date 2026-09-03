@@ -37,7 +37,8 @@ class CronAudit(CronJobBase):
     code = 'helloworld.CronAudit'
 
     def do(self):
-        
+        """Run the database audit and email its result."""
+
         logger.info("Cron Audit Job Starting...")
         # Group IDs from admin authority group
         admin_groups = Group.objects.filter(name='Admin')
@@ -48,6 +49,7 @@ class CronAudit(CronJobBase):
         EMAIL_USER = settings.EMAIL_HOST_USER
         AUDIT_RECIPIENT = settings.AUDIT_RECIPIENT
         recipients = admin_emails + ([AUDIT_RECIPIENT] if AUDIT_RECIPIENT else [])
+        filedate = datetime.now().date()
 
         try:
             audit = Audit()
