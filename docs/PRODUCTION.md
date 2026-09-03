@@ -41,7 +41,8 @@ chmod 600 .env
 Set these values in `.env`:
 
 - production: `PRODUCTION_URL` and the two secret paths;
-- staging: the same, with the staging hostname and `MAILPIT_UI_AUTH`;
+- staging: the same, with the staging hostname and a non-empty
+  `MAILPIT_UI_AUTH`;
 - both environments: optional `SENTRY_DSN` and an optional `HEMPDB_IMAGE`
   override of the default branch tag.
 
@@ -143,9 +144,10 @@ disabled. The app and Mailpit publish host ports set by `APP_PORT` and
 firewall range for load balancer traffic; they default to `8001`/`8025`).
 The load balancer routes `https://hempdb-staging.cass.oregonstate.edu`
 to the app and its `/mailpit` path to the Mailpit UI. That UI shows every
-message the app sends, including password resets, so `MAILPIT_UI_AUTH` in
-`.env` must hold `user:password` basic-auth credentials (Chef supplies them);
-Compose passes the value to Mailpit as `MP_UI_AUTH`.
+message the app sends, including password resets. `MAILPIT_UI_AUTH` in `.env`
+is required and must hold `user:password` basic-auth credentials. Compose
+refuses to start when it is missing or empty. Chef supplies the value, which
+Compose passes to Mailpit as `MP_UI_AUTH`.
 
 ## Production
 

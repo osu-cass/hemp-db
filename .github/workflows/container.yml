@@ -39,8 +39,19 @@ jobs:
           docker compose -f compose.deploy.yaml -f compose.prod.yaml -f compose.build.yaml config --quiet
 
       - name: Validate staging Compose
+        env:
+          MAILPIT_UI_AUTH: ci:placeholder
         run: |
           cp .env.staging.example .env
+          if output=$(env -u MAILPIT_UI_AUTH docker compose \
+            -f compose.deploy.yaml -f compose.staging.yaml config --quiet 2>&1); then
+            echo "Staging Compose accepted an empty MAILPIT_UI_AUTH"
+            exit 1
+          fi
+          if [[ "$output" != *"MAILPIT_UI_AUTH"* ]]; then
+            printf '%s\n' "$output"
+            exit 1
+          fi
           docker compose -f compose.deploy.yaml -f compose.staging.yaml config --quiet
           docker compose -f compose.deploy.yaml -f compose.staging.yaml --profile operations config --quiet
 
