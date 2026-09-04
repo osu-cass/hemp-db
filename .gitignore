@@ -2,8 +2,13 @@
 **/__pycache__/
 .DS_Store
 .env
+.env.production
+.env.staging
 .ruff_cache
 *.sql
+!docker/mysql/*.sql
 /venv
 grep
 hempdb-creds.txt
+docker/secrets/
+helloworld/management/commands/auditlogs/*.csv

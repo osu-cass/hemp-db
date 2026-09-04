@@ -1,0 +1,91 @@
+name: hempdb-development
+
+services:
+  mysql:
+    image: percona/percona-server:8.0
+    env_file:
+      - .env.docker
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+    ports:
+      - "127.0.0.1:${MYSQL_PORT:-3307}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./docker/mysql/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        # 127.0.0.1 forces TCP so the init phase's socket-only temporary
+        # server cannot satisfy the check before networking is up.
+        - mysqladmin ping --host=127.0.0.1 --user=root --password="$${MYSQL_ROOT_PASSWORD}" --silent
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  valkey:
+    image: valkey/valkey:9.1-alpine
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "127.0.0.1:${MAILPIT_PORT:-8025}:8025"
+
+  app:
+    build:
+      context: .
+      target: development
+      args:
+        APP_UID: ${APP_UID:-1000}
+        APP_GID: ${APP_GID:-1000}
+    init: true
+    env_file:
+      - .env.docker
+    environment:
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-development}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
+      SENTRY_PROFILES_SAMPLE_RATE: ${SENTRY_PROFILES_SAMPLE_RATE:-0.0}
+    ports:
+      - "127.0.0.1:${APP_PORT:-8000}:8000"
+    volumes:
+      - .:/app
+    depends_on:
+      mysql:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://localhost:8000/', timeout=5)
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  phpmyadmin:
+    image: phpmyadmin:latest
+    profiles: ["dev-tools"]
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+      UPLOAD_LIMIT: 64M
+    ports:
+      - "127.0.0.1:${PHPMYADMIN_PORT:-8081}:80"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+volumes:
+  mysql_data:

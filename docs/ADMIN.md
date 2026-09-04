@@ -80,7 +80,7 @@ Clicking Approve will approve the change, and the change will be processed immed
 Any user in a group with the substring "admin" (i.e. the `Admin` and `SrAdmin` groups), will receive email notifications to the email associated with their account when a pending change is created. In other words, each time a company is created, edited, or deleted, and the change needs approval, these users will receive an email.
 
 If a user would like to receive these emails, they can follow these steps:
-1. Log in to [HempDB](https://hempdb.vercel.app/).
+1. Log in to [HempDB](https://hempdb.cass.oregonstate.edu/).
 2. Click your username in the top right, and click `Admin` from the dropdown.
   * If you do not see `Admin` in this dropdown, contact someone with `staff` status to do the remaining steps for you.
 3. Once in the Django admin portal, click `Users` on the left.

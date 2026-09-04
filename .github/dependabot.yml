@@ -1,0 +1,48 @@
+---
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      # Majors are deliberately excluded: grouping them lumps every
+      # breaking change into one unreviewable PR. They still arrive,
+      # as individual PRs that can be reviewed and tested one at a time.
+      pip-dependencies:
+        applies-to: version-updates
+        update-types:
+          - minor
+          - patch
+        patterns:
+          - "*"
+      # update-types is not supported for security-updates groups, so
+      # this group takes whatever version the advisory requires.
+      pip-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      docker:
+        patterns:
+          - "*"
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      docker-compose:
+        patterns:
+          - "*"

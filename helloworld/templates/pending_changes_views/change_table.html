@@ -26,8 +26,8 @@
                           </thead>
                           <tbody>
                             {% for change in changes %}
-                              <tr onclick="window.location.href='{% url 'company-view-pending' change.id %}';" style="cursor: pointer;" onmouseover="this.style.backgroundColor='#dbd9d9';" onmouseout="this.style.backgroundColor='';">
-                                <td><a href="{% url 'company-view-pending' change.id %}">{{ change.id }}</a></td>
+                              <tr class="pending-change-row position-relative">
+                                <td><a class="stretched-link" href="{% url 'company-view-pending' change.id %}">{{ change.id }}</a></td>
                                 <td>{{ change.changeType }}</td>
                                 <td>{{ change.author.username }}</td>
                                 <td>{{ change.created_at }}</td>

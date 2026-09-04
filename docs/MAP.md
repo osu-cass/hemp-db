@@ -27,9 +27,9 @@ __Editing a company__
 In summary, a user manually touching latitude/longitude will always take precedence. If they do not, we will call the geocoding API to obtain the coordinates.
 
 
-## Redis Caching
+## Map Caching
 You may notice when visiting the map page for the first time in awhile, it takes ~5 seconds to load, but subsequent refreshes of the page are faster. This is because we cache the queried company data from the database.
 
 Signals in `signals.py` are used to invalidate the cached data when the applicable models are created, edited, or deleted so the map isn't showing dated information.
 
-To do this, we use Redis, which stores data in-memory for better performance. More details about this can be seen in the `map()` view, and Django's caching documentation can be found [here](https://docs.djangoproject.com/en/5.2/topics/cache/).
+The cache stores data in memory for better performance. More details about this can be seen in the `map()` view, and Django's caching documentation can be found [here](https://docs.djangoproject.com/en/5.2/topics/cache/).

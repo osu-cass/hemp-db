@@ -1,52 +1,141 @@
 # Developing on HempDB
 
-This page details how to set up a local development environment and develop features. This page is intended for developers. Please read this entire page before developing on HempDB.
+The local development environment runs Django and its supporting services with Docker Compose using safe development-only credentials.
+
+## Requirements
+
+- Docker Desktop or Docker Engine with Docker Compose
+- Git
+
+No application API keys or production secrets are required for the default stack. Internet access is still needed for image downloads and for the application's external map assets, map tiles, and ArcGIS geocoding requests.
 
 ## Local Setup
 
-1. Clone repository
-2. Set up .env file
-  * `cp .env.example .env`
-  * Replace dummy values with actual values. Actual .env values and credentials can be obtained via Teams.
+1. Clone the repository.
+2. Build and start the stack:
 
-3. Build the docker image
-  * `docker build -t hempdb .`
+   ```sh
+   docker compose up --build
+   ```
 
-4. Start Docker container
-  * Mac/Linux: `docker run --name hempdb-dev -it -p 8000:8000 -v $(pwd):/code hempdb`    
-  * Windows (PowerShell): `docker run --name hempdb-dev -it -p 8000:8000 -v ${pwd}:/code hempdb`
-  * If container already exists: `docker start -a -i hempdb-dev`
-  * To remove duplicate container: `docker rm hempdb-dev`
+3. Open the application at <http://localhost:8000>.
+4. Open Mailpit at <http://localhost:8025> to inspect locally generated email.
 
-5. Open http://localhost:8000
+The app waits for Percona Server and Valkey to become healthy and for Mailpit to start, applies pending migrations, and then starts Django's autoreloading development server. Source changes are available immediately through the bind mount; dependency changes require an image rebuild.
 
-**Container does not need to be manually restarted with every code change. Django uses StatReloader to auto-reload the code**
+The database starts with an empty migrated schema. Create a local administrator when needed:
 
-## Local Development
+```sh
+docker compose exec app python manage.py createsuperuser
+```
 
-1. Checkout new branch
-  * `git checkout -b "<feature_name>"`
+## Service Architecture
 
-2. Develop feature
-  * For features that alter database schema, make and run migrations with the following commands:
-  * `docker exec -it hempdb-dev bash`
-  * `python manage.py makemigrations`
-  * `python manage.py migrate`
-  * For features that add new env vars, add them to your .env, the .env.example, and to Vercel
-  * Add any new dependencies to requirements.txt. You will need to rebuild your docker image when dependencies are added.
+| Service | Purpose | Host access |
+| --- | --- | --- |
+| `app` | Django development server and management commands | <http://localhost:8000> |
+| `mysql` | Percona Server for MySQL 8.0 (matching production) application and test databases | `127.0.0.1:3307` by default |
+| `valkey` | Django map cache | Compose network only |
+| `mailpit` | Captures all development email | <http://localhost:8025> |
+| `phpmyadmin` | Optional MySQL administration UI | <http://localhost:8081> |
 
-3. Lint with ruff
-  * Access the running container's shell with `docker exec -it hempdb-dev bash` in a separate terminal
-  * Lint with `ruff check .`
-  * Fix any errors with `ruff check . --fix`
+Percona Server data is stored in the `mysql_data` named volume. Valkey is intentionally disposable because it contains cached data only, and Mailpit messages are not preserved across container replacement.
 
-4. Push branch and open PR
+## phpMyAdmin
 
-### ⚠️⚠️⚠️ Before Pushing to GitHub, Ensure `DEBUG = False` ⚠️⚠️⚠️
+phpMyAdmin is disabled by default. Start the full stack with the development tools profile:
 
-To do this, go to `hempdb/settings.py` and set `DEBUG = False`
+```sh
+docker compose --profile dev-tools up --build
+```
 
-**Important:** The `DEBUG` flag is also used to configure things like whether emails are actually sent to people, or just logged to the console (see `settings.py`). As a result, please set `DEBUG = True` when you're developing locally.
+Or start only phpMyAdmin and its Percona Server dependency:
 
-* For example, if you edit a company locally, an email notification may get sent to non-developers, even if you're connected to the development database.
-* This happens because of the nature of the development database. It was created by duplicating the production database, which contains information like users and if they are in an admin group (this is how the email system determines who to send emails to in `notifications.py`).
+```sh
+docker compose --profile dev-tools up phpmyadmin
+```
+
+Sign in with the local credentials from `.env.docker`:
+
+- Server: `mysql`
+- Username: `hempdb` / Password: `hempdb` (application database only)
+- Or `root` / `root` for full administration across all databases
+
+## Django Commands
+
+Run management commands inside the app container:
+
+```sh
+docker compose exec app python manage.py makemigrations
+docker compose exec app python manage.py migrate
+docker compose exec app python manage.py runcrons --force
+```
+
+Pending migrations are also applied automatically whenever the app container starts.
+
+Run the test suite and lint checks with:
+
+```sh
+docker compose exec app python manage.py test
+docker compose exec app ruff check .
+```
+
+The local MySQL-compatible user is allowed to create and remove Django's `test_hempdb` database.
+
+## Configuration and Ports
+
+`.env.docker` is committed because it contains local-only values. Never reuse
+its credentials outside this Compose stack. The Compose deployment stacks read
+a per-host `.env` (created from `.env.staging.example` or
+`.env.production.example`) with Docker secrets. `.env.example` is a template
+for running `manage.py` outside Docker.
+
+Sentry is disabled locally because `.env.docker` leaves `SENTRY_DSN` empty. To
+enable a non-production Sentry project for one command, set its DSN without
+writing credentials to the repository:
+
+```sh
+SENTRY_DSN='https://example@o0.ingest.sentry.io/0' \
+SENTRY_ENVIRONMENT=development \
+docker compose -f compose.yaml up
+```
+
+Set trace and profile sample rates in the same command when needed. Use a
+development Sentry project and never commit the DSN.
+
+Override published ports or the container user's IDs from the shell when necessary:
+
+```sh
+APP_PORT=8001 MYSQL_PORT=3308 MAILPIT_PORT=8026 PHPMYADMIN_PORT=8082 docker compose --profile dev-tools up
+APP_UID=$(id -u) APP_GID=$(id -g) docker compose build app
+```
+
+The default UID and GID are `1000`. Developers whose host account uses different IDs should rebuild the app image with the second command before creating migrations from inside the container.
+
+## Stopping and Resetting
+
+Stop the stack while preserving Percona Server data:
+
+```sh
+docker compose down
+```
+
+Remove the stack and permanently delete the local Percona Server volume:
+
+```sh
+docker compose down -v
+```
+
+The next startup recreates an empty database and reapplies all migrations.
+
+If your `mysql_data` volume was created by an earlier Percona Server 8.4
+stack, run `docker compose down -v` once before starting: MySQL cannot open a
+data directory from a newer major version.
+
+## Dependency and Configuration Changes
+
+- After editing a requirements file, run `docker compose build app` and restart the app service.
+- Add shared variables to `.env.example`, `.env.staging.example`, or
+  `.env.production.example` as needed.
+- Add safe, local equivalents to `.env.docker` only when the local stack needs them.
+- Never place real credentials in `.env.docker` or `compose.yaml`.

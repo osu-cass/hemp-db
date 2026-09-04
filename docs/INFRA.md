@@ -4,12 +4,32 @@ This page outlines the infrastructure of the HempDB web app and is intended for 
 
 ## Website
 
-The website is hosted on [Vercel](https://vercel.com). The login for the CMCI Vercel account can be obtained from Dr. Johnny Chen (CMCI). The project uses default configuration for the most part, but specifies `./build.sh` as a custom build step. 
-
-Vercel automatically builds all branches pushed to GitHub. Main branch is configured to be production.
+The website runs as Docker Compose stacks on hosts managed by the OSU Open
+Source Lab through the `osl-app` Chef cookbook. Images are published to GitHub
+Container Registry at `ghcr.io/osu-cass/hemp-db`: pushes to the `dev` branch
+publish the `dev` tag used by staging
+(`hempdb-staging.cass.oregonstate.edu`); pushes to `main` publish `main` and
+`latest`, used by production (`hempdb.cass.oregonstate.edu`). TLS termination
+and ingress are handled by OSL-managed HAProxy in front of the
+loopback-bound app containers. See [PRODUCTION.md](PRODUCTION.md) for the
+deployment stacks and the Chef-owned host responsibilities.
 
 ## MySQL Database
 
-The MySQL database used to store all the data for this project is hosted on AWS RDS. The login for the CMCI AWS account can be obtained from Dr. Johnny Chen (CMCI). 
+The data is stored in a Percona Server for MySQL 8.0 master/master cluster
+managed by the OSU Open Source Lab, external to the Compose stacks. The
+application connects with the `DATABASE_URL` Docker secret over TLS. The
+cluster serves a publicly signed certificate, so it is verified against the
+system CA store with hostname checking and needs no CA secret. Local
+development runs the same Percona Server 8.0 as a container.
 
-The actual MySQL database has multiple databases within it. Which database you connect to (ex: production or development) can be specified at the end of the connection string after the `/`.
+## Cache
+
+The Valkey cache runs as a container inside each deployment stack. It holds
+cached data only, is intentionally disposable, and needs no backups.
+
+## Email
+
+Outbound mail goes through the OSL SMTP relay at `smtp.osuosl.org` (port 25,
+STARTTLS, no authentication). Staging redirects mail to its bundled Mailpit
+instead of the relay.

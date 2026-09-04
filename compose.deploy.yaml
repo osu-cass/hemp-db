@@ -1,0 +1,120 @@
+x-app-environment: &app-environment
+  SECRET_KEY_FILE: /run/secrets/django_secret_key
+  DATABASE_URL_FILE: /run/secrets/database_url
+  REDIS_URL: redis://valkey:6379/0
+  PRODUCTION_URL: "${PRODUCTION_URL:?Set PRODUCTION_URL in the environment file}"
+  DEBUG: "${DEBUG:-false}"
+  DATABASE_SSL: "${DATABASE_SSL:-true}"
+  EMAIL_BACKEND: "${EMAIL_BACKEND:-django.core.mail.backends.smtp.EmailBackend}"
+  EMAIL_USE_TLS: "${EMAIL_USE_TLS:-true}"
+  SECURE_SSL_REDIRECT: "${SECURE_SSL_REDIRECT:-true}"
+  SESSION_COOKIE_SECURE: "${SESSION_COOKIE_SECURE:-true}"
+  CSRF_COOKIE_SECURE: "${CSRF_COOKIE_SECURE:-true}"
+  TRUST_X_FORWARDED_PROTO: "${TRUST_X_FORWARDED_PROTO:-true}"
+  SECURE_HSTS_SECONDS: "${SECURE_HSTS_SECONDS:-300}"
+  SECURE_HSTS_INCLUDE_SUBDOMAINS: "${SECURE_HSTS_INCLUDE_SUBDOMAINS:-false}"
+  SECURE_HSTS_PRELOAD: "${SECURE_HSTS_PRELOAD:-false}"
+
+x-app-secrets: &app-secrets
+  - django_secret_key
+  - database_url
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: ${LOG_MAX_SIZE:-10m}
+    max-file: ${LOG_MAX_FILE:-5}
+
+x-deployment-defaults: &deployment-defaults
+  image: ${HEMPDB_IMAGE:-ghcr.io/osu-cass/hemp-db:latest}
+  init: true
+  environment: *app-environment
+  secrets: *app-secrets
+  read_only: true
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,size=64m
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  logging: *default-logging
+
+services:
+  valkey:
+    image: valkey/valkey:9.1-alpine
+    # The image's valkey user; starting non-root skips the entrypoint's
+    # chown/setpriv, which cap_drop ALL would otherwise break.
+    user: "999:1000"
+    read_only: true
+    tmpfs:
+      - /data:rw,noexec,nosuid,size=256m,uid=999,gid=1000,mode=0700
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  migrate:
+    <<: *deployment-defaults
+    command: ["python", "manage.py", "migrate", "--noinput"]
+    restart: "no"
+
+  app:
+    <<: *deployment-defaults
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      valkey:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import os, urllib.request;
+          request = urllib.request.Request(
+          'http://127.0.0.1:8000/health/ready/',
+          headers={'Host': os.environ['PRODUCTION_URL'],
+          'X-Forwarded-Proto': 'https'});
+          urllib.request.urlopen(request, timeout=5)
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    stop_grace_period: 35s
+    pids_limit: ${APP_PIDS_LIMIT:-256}
+    mem_limit: ${APP_MEMORY_LIMIT:-1g}
+    cpus: ${APP_CPUS:-1.0}
+
+  cron:
+    <<: *deployment-defaults
+    profiles: ["operations"]
+    environment:
+      <<: *app-environment
+      AUDIT_LOG_DIR: ${AUDIT_LOG_DIR:-/var/lib/hempdb/auditlogs}
+    command: ["python", "manage.py", "runcrons"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      valkey:
+        condition: service_healthy
+    volumes:
+      - audit_logs:/var/lib/hempdb/auditlogs
+    restart: "no"
+
+secrets:
+  django_secret_key:
+    file: ${SECRET_KEY_PATH:?Set SECRET_KEY_PATH in the environment file}
+  database_url:
+    file: ${DATABASE_URL_PATH:?Set DATABASE_URL_PATH in the environment file}
+
+volumes:
+  audit_logs:

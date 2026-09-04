@@ -1,12 +1,22 @@
 {% extends "master.html" %}
+{% load static %}
 
 {% block title %}
   HempDB - Map
 {% endblock %}
 
+{% block extra_head %}
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css" integrity="sha384-lPzjPsFQL6te2x+VxmV6q1DpRxpRk0tmnl2cpwAO5y04ESyc752tnEWPKDfl1olr" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.Default.css" integrity="sha384-5kMSQJ6S4Qj5i09mtMNrWpSi8iXw230pKU76xTmrpezGnNJQzj0NzXjQLLg+jE7k" crossorigin="anonymous">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="anonymous" defer></script>
+  <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js" integrity="sha384-RLIyj5q1b5XJTn0tqUhucRZe40nFTocRP91R/NkRJHwAe4XxnTV77FXy/vGLiec2" crossorigin="anonymous" defer></script>
+  <script src="{% static 'helloworld/map.js' %}" defer></script>
+{% endblock %}
+
 {% block content %}
 
-  {{ companies|json_script:"company_data"}}
+  {{ companies|json_script:"company_data" }}
   {{ filters|json_script:"filter_data" }}
 
   <div style="display: flex;">
@@ -25,168 +35,4 @@
       <div id="filters" style="overflow-y: auto; padding: 10px;"></div>
     </div>
   </div>
-
-  <script>
-    // Create standard and satellite base layers
-    let osmStandard = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 16,
-      attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors<br>'
-    });
-    let usgsSatellite = L.tileLayer('https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryTopo/MapServer/tile/{z}/{y}/{x}', {
-      maxZoom: 16,
-	    attribution: 'Tiles courtesy of the <a href="https://usgs.gov/">U.S. Geological Survey</a>'
-    });
-
-    // Create Leaflet map
-    let map = L.map('map', {
-      center: [39.833, -98.583],
-      zoom: 4,
-      layers: [osmStandard] // Default base layer
-    });
-
-    // Add base layer titles/layers to obj and add to map
-    let baseMaps = {
-      "OSM Standard": osmStandard,
-      "USGS Satellite": usgsSatellite
-    };
-    let layerControl = L.control.layers(baseMaps).addTo(map);
-    let markers = L.markerClusterGroup(); // Heatmap cluster
-
-    // Extract data from json_script template filter above to embed in HTML
-    const companies = JSON.parse(document.getElementById('company_data').textContent);
-    const filterData = JSON.parse(document.getElementById('filter_data').textContent);
-    
-    // Generates filters for sidebar from backend data
-    function generateFilters() {
-      let filtersDiv = document.getElementById('filters');
-
-      filterData.forEach((filter, index) => {
-        // Create category heading
-        let category = document.createElement('h5');
-        category.textContent = filter.name;
-        if (index !== 0) category.style.marginTop = '12px';
-        filtersDiv.appendChild(category);
-
-        // Create checkboxes/radios for each category
-        filter.options.forEach(option => {
-          let div = document.createElement('div');
-          div.className = 'form-check'
-
-          let input = document.createElement('input');
-          input.type = filter.name === 'Industry' ? 'radio' : 'checkbox';
-          input.value = option.id;
-          input.name = filter.name;
-          input.id = `${filter.name}_${option.id}`;
-          input.className = 'form-check-input'
-
-          let label = document.createElement('label');
-          label.htmlFor = input.id;
-          label.textContent = option.name;
-          label.className = 'form-check-label'
-
-          div.appendChild(input);
-          div.appendChild(label);
-          filtersDiv.appendChild(div);
-        });
-      });
-    }
-
-    // Collect and return selected filters
-    function getSelectedFilters() {
-      // JSON of name-array pairs. Arrays are list of ids of options selected for each category
-      let selected = {};
-      
-      filterData.forEach(filter => {
-        if (filter.name === 'Industry') { // Filter Industry radio buttons
-          let industryRadio = document.querySelector(`input[name="${filter.name}"]:checked`);
-          selected[filter.name] = industryRadio ? [parseInt(industryRadio.value)] : [];
-        } else {
-          selected[filter.name] = Array.from( // Filter checkboxes
-              document.querySelectorAll(`input[name="${filter.name}"]:checked`)
-          ).map(checkbox => parseInt(checkbox.value));
-        }
-      });
-      return selected;
-    }
-
-    // Places markers on map based on selected filters or upon page load
-    function addMarkers() {
-      markers.clearLayers();
-      let selectedFilters = getSelectedFilters();
-      let numMarkers = 0;
-
-      companies.forEach(company => {
-        let shouldDisplay = true;
-
-        // Loop over each category like Industry, Stages, etc.
-        // Example of selectedFilters entry: stages: [1, 2, 5]
-        for (let [category, selectedIds] of Object.entries(selectedFilters)) {
-          if (selectedIds.length === 0) continue;
-
-          let companyIds = company[category];
-          if (category === 'Industry') {
-            if (!companyIds || !selectedIds.includes(companyIds)) {
-              shouldDisplay = false;
-              break;
-            }
-          } else {
-              let companyIdsClean = companyIds || []; // Ensure array type. M2Ms may be empty unlike FK
-              if (!selectedIds.every(id => companyIdsClean.includes(id))) {
-                shouldDisplay = false;
-                break;
-              }
-          }
-        }
-
-        // Place marker if company should be displayed
-        if (shouldDisplay) {
-          let marker = L.marker([company.Latitude, company.Longitude], {
-            title: company.Name
-          });
-
-          let popupContent = `<b><a href="/companies/${company.id}" target="_blank">${company.Name}</a></b><br>`;
-          popupContent += `Location: ${company.Location}<br>`;
-          if (company.Phone) popupContent += `Phone: ${company.Phone}<br>`;
-          if (company.Website) popupContent += `Website: <a href="${company.Website}" target="_blank">${company.Website}</a>`;
-
-          marker.bindPopup(popupContent);
-          markers.addLayer(marker);
-          numMarkers++;
-        }
-      });
-
-      map.addLayer(markers);
-      updateCompanyCount(numMarkers);
-    }
-    
-    // Uncheck all boxes/radios and redisplay all markers
-    function resetFilters() {
-      document.querySelectorAll('input[type="checkbox"], input[type="radio"]').forEach(input => {
-        input.checked = false;
-      });
-      addMarkers();
-    }
-
-    // Update the company count text
-    function updateCompanyCount(count) {
-      let companyCountDiv = document.getElementById('companyCount');
-      companyCountDiv.textContent = `${count} Active Companies Shown`;
-    }
-
-    // Add custom text instructions bottom left of map
-    let customText = L.control({ position: 'bottomleft' });
-    customText.onAdd = () => {
-      let p = L.DomUtil.create('p');
-      p.innerHTML = `Marker locations may be inaccurate.<br> 
-                    Click markers for up to date locations.`;
-      return p;
-    };
-    customText.addTo(map);
-
-    // Init DOM
-    document.getElementById('applyButton').addEventListener('click', addMarkers);
-    document.getElementById('resetButton').addEventListener('click', resetFilters);
-    generateFilters();
-    addMarkers();
-  </script>
 {% endblock %}

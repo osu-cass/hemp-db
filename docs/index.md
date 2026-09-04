@@ -8,7 +8,8 @@
 ## Documentation for Developers
 
 - [Local Setup and Development](DEVELOP.md)
-- [CI/CD, Tests, and Vercel](BUILD.md)
+- [CI/CD and Tests](BUILD.md)
+- [Production Deployment](PRODUCTION.md)
 - [Database Schema & Models](MODELS.md)
 - [Infrastructure](INFRA.md)
 - [File Structure](FILES.md)

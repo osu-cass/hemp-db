@@ -58,13 +58,16 @@
           <a class="nav-link dropdown-toggle text-light" href="#" id="navbarDropdown" role="button" data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
             Hello, {{ user.get_username }}
           </a>
-          <div class="dropdown-menu" aria-labelledby="navbarDropdown">
+          <div class="dropdown-menu dropdown-menu-end" aria-labelledby="navbarDropdown">
             {% if user.is_staff %}
               <a class="dropdown-item" href="/admin">Admin</a>
               <a class="dropdown-item" href="/changes">Review Changes</a>
             {% endif %}
             <a class="dropdown-item" href="/my_changes">My Changes</a>
-            <a class="dropdown-item" href="/user/logout">Log out</a>
+            <form method="post" action="{% url 'logout' %}">
+              {% csrf_token %}
+              <button type="submit" class="dropdown-item">Log out</button>
+            </form>
           </div>
         </li>
       {% else %}

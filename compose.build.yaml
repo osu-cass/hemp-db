@@ -1,0 +1,19 @@
+# Tags local builds separately so they never overwrite a pulled published image.
+x-local-image: &local-image hempdb:local-production
+
+x-local-build: &local-build
+  context: .
+  target: production
+
+services:
+  migrate:
+    image: *local-image
+    build: *local-build
+
+  app:
+    image: *local-image
+    build: *local-build
+
+  cron:
+    image: *local-image
+    build: *local-build

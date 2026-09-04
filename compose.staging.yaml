@@ -1,0 +1,57 @@
+name: hempdb-staging
+
+x-staging-env-file: &staging-env-file
+  - .env
+
+x-staging-image: &staging-image ${HEMPDB_IMAGE:-ghcr.io/osu-cass/hemp-db:dev}
+
+services:
+  mailpit:
+    image: axllent/mailpit:latest
+    environment:
+      # The load balancer serves the UI under /mailpit on the staging host
+      MP_WEBROOT: /mailpit
+      # Basic auth for the UI ("user:password"); it is reachable through the
+      # load balancer and holds every message the app sends.
+      MP_UI_AUTH: "${MAILPIT_UI_AUTH:?Set MAILPIT_UI_AUTH in the environment file}"
+    ports:
+      - "${MAILPIT_PORT:-8025}:8025"
+    restart: unless-stopped
+
+  migrate:
+    image: *staging-image
+    env_file: *staging-env-file
+    environment:
+      SENTRY_ENVIRONMENT: "${SENTRY_ENVIRONMENT:-staging}"
+
+  app:
+    image: *staging-image
+    env_file: *staging-env-file
+    environment:
+      SENTRY_ENVIRONMENT: "${SENTRY_ENVIRONMENT:-staging}"
+      EMAIL_BACKEND: django.core.mail.backends.smtp.EmailBackend
+      EMAIL_HOST: mailpit
+      EMAIL_PORT: "1025"
+      EMAIL_USE_TLS: "false"
+      EMAIL_USER: ""
+      EMAIL_APP_PASSWORD: ""
+    depends_on:
+      mailpit:
+        condition: service_started
+    ports:
+      - "${APP_PORT:-8001}:8000"
+
+  cron:
+    image: *staging-image
+    env_file: *staging-env-file
+    environment:
+      SENTRY_ENVIRONMENT: "${SENTRY_ENVIRONMENT:-staging}"
+      EMAIL_BACKEND: django.core.mail.backends.smtp.EmailBackend
+      EMAIL_HOST: mailpit
+      EMAIL_PORT: "1025"
+      EMAIL_USE_TLS: "false"
+      EMAIL_USER: ""
+      EMAIL_APP_PASSWORD: ""
+    depends_on:
+      mailpit:
+        condition: service_started

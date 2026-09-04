@@ -1383,7 +1383,7 @@ def map(request: HttpRequest) -> HttpResponse:
         if map_data_cache := cache.get(cache_key):
             return render(request, 'map.html', map_data_cache)
     except Exception:
-            pass # Continue to db query if Redis caching fails
+            pass # Continue to database query if caching fails
 
 
     # Select all companies who have a latitude and longitude and are not inactive
@@ -1409,7 +1409,7 @@ def map(request: HttpRequest) -> HttpResponse:
             'Latitude': float(company.Latitude),
             'Longitude': float(company.Longitude),
             'Location': ', '.join([i for i in [company.Address, company.City, company.State, company.Country] if is_valid(i)]),
-            'Industry': company.Industry.id,
+            'Industry': company.Industry_id,
             'Categories': [c.id for c in company.Category.all()],
             'Stakeholder Group': [sg.id for sg in company.stakeholderGroup.all()],
             'Stages': [s.id for s in company.Stage.all()],
@@ -1445,7 +1445,7 @@ def map(request: HttpRequest) -> HttpResponse:
     try:
         cache.set(cache_key, {'companies': processed_companies, 'filters': filter_options}, cache_timeout)
     except Exception:
-        pass # Continue without caching if Redis fails
+        pass # Continue without caching if the cache fails
 
     return render(request, 'map.html', {'companies': processed_companies, 'filters': filter_options})
 
