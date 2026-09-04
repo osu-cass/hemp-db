@@ -10,17 +10,17 @@ There are many ways to contribute, from improving the documentation, submitting 
 
 ### Reporting Bugs
 
-If you find a bug, please first check our Azure DevOps board or GitHub issues to see if it has already been reported. If not, please file a new work item (or open a GitHub issue using the bug report template).
+If you find a bug, first check GitHub Issues to see if it has already been reported. If not, open an issue using the bug report template.
 
 ### Suggesting Enhancements
 
-If you have an idea for a new feature or an improvement to an existing one, please open a work item on our Azure DevOps board to discuss it. This allows us to coordinate our efforts and prevent duplication of work.
+If you have an idea for a new feature or an improvement to an existing one, open a GitHub issue to discuss it. This helps us coordinate our efforts and avoid duplicate work.
 
 Provide a clear description of the enhancement and why you think it would be valuable.
 
 ### Submitting Pull Requests
 
-If you'd like to contribute code, that's fantastic! First, ensure that a work item exists for the enhancement you want to implement. If not, please create one. If it's a small change, you can also submit a pull request directly without creating a work item, but be aware that your pull request may not be accepted if it's not aligned to our project's direction. Creating a work item first is recommended to ensure that your contribution aligns with our project's direction.
+Before contributing code, check that a GitHub issue exists for the change you want to make. If not, create one. You may submit a small change without an issue, but discussing it first helps confirm that it fits the project's direction.
 
 From there, follow these steps:
 
@@ -39,7 +39,7 @@ docker compose exec app python manage.py test
 *   The PR title should be descriptive.
 *   The PR description should explain the "what" and "why" of the changes.
 *   Ensure all automated checks are passing.
-*   Please link the related Azure DevOps work item in the description.
+*   Link the related GitHub issue in the description.
 *   Be prepared to address feedback from the maintainers.
 
 Thank you again for your interest in contributing!
