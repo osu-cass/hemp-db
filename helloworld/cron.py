@@ -48,6 +48,7 @@ class CronAudit(CronJobBase):
         EMAIL_USER = settings.EMAIL_HOST_USER
         AUDIT_RECIPIENT = settings.AUDIT_RECIPIENT
         recipients = admin_emails + ([AUDIT_RECIPIENT] if AUDIT_RECIPIENT else [])
+        filedate = datetime.now().date()
 
         try:
             audit = Audit()
