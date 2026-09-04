@@ -99,7 +99,8 @@ chmod 400 docker/secrets/*
 ### Defaults and Optional Tuning
 
 Stable deployment values are kept out of the example files. The production
-overlay binds the app to loopback port `8000`; it and the shared base default
+overlay publishes the app on `APP_PORT` (default: loopback port `8000`; Chef
+sets a port in the app host's firewall range); it and the shared base default
 to `DEBUG=false`, verified database TLS, secure cookies, HTTPS proxy handling,
 HSTS settings, and an audit log directory at
 `/var/lib/hempdb/auditlogs`. Staging publishes the app and Mailpit UI on host
@@ -216,7 +217,7 @@ which owns everything outside this repository:
 - the secret files under `docker/secrets/`;
 - pulling published images and running `up --detach --wait` on chef-client
   runs when the image or configuration changes;
-- TLS termination and ingress through OSL-managed HAProxy (the app binds to
-  loopback only);
+- TLS termination and ingress through OSL-managed HAProxy, which reaches the
+  app on the `APP_PORT` Chef sets;
 - the cron schedule (host crontab running the command above);
 - the external MySQL cluster and its backups.
