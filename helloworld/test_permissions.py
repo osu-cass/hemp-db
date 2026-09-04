@@ -167,7 +167,7 @@ class PermissionWorkflowTests(TestCase):
         self.assertEqual(change.pending_company.Name, "Researcher company")
 
     def test_navbar_uses_feature_permissions(self):
-        """Navbar links follow feature permissions rather than staff flags."""
+        """Feature links use permissions, while Admin follows the Staff flag."""
         self.client.force_login(self.researcher)
         response = self.client.get("/")
         self.assertContains(response, "/upload_wizard")
@@ -180,7 +180,9 @@ class PermissionWorkflowTests(TestCase):
         self.assertNotContains(response, "/admin")
 
         self.client.force_login(self.staff)
-        self.assertNotContains(self.client.get("/"), "/changes")
+        response = self.client.get("/")
+        self.assertNotContains(response, "/changes")
+        self.assertContains(response, "/admin")
 
     @patch("helloworld.signals.cache.delete")
     def test_pending_approval_is_post_only_locked_and_single_use(self, cache_delete):
@@ -260,12 +262,49 @@ class PermissionWorkflowTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Change Type: deletion")
 
-    def test_admin_requires_active_staff_superuser(self):
-        """A staff-only user cannot enter the custom admin site."""
+    def test_admin_uses_standard_active_staff_access(self):
+        """Active Staff users enter Admin without becoming superusers."""
         self.client.force_login(self.staff)
-        self.assertNotEqual(self.client.get("/admin/").status_code, 200)
+        self.assertEqual(self.client.get("/admin/").status_code, 200)
+
+        company_url = reverse("admin:helloworld_company_changelist")
+        self.assertEqual(self.client.get(company_url).status_code, 403)
+        self.staff.user_permissions.add(
+            Permission.objects.get(
+                content_type=ContentType.objects.get_for_model(Company),
+                codename="view_company",
+            )
+        )
+        self.assertEqual(self.client.get(company_url).status_code, 200)
+
+    def test_admin_rejects_inactive_staff_and_active_nonstaff(self):
+        """Both active and Staff are required for Django Admin."""
+        inactive_staff = self._user("inactive-staff", is_active=False, is_staff=True)
+
+        self.client.force_login(inactive_staff)
+        self.assertRedirects(
+            self.client.get("/admin/"),
+            "/admin/login/?next=/admin/",
+            fetch_redirect_response=False,
+        )
+
+        for feature_user in (self.researcher, self.manager):
+            self.assertFalse(feature_user.is_staff)
+            self.client.force_login(feature_user)
+            self.assertRedirects(
+                self.client.get("/admin/"),
+                "/admin/login/?next=/admin/",
+                fetch_redirect_response=False,
+            )
+
+    def test_active_staff_superuser_has_unrestricted_admin_access(self):
+        """An active Staff superuser retains Django's implicit permissions."""
         self.client.force_login(self.superuser)
         self.assertEqual(self.client.get("/admin/").status_code, 200)
+        self.assertEqual(
+            self.client.get(reverse("admin:helloworld_company_changelist")).status_code,
+            200,
+        )
 
 
 class UploadBatchTests(TestCase):
@@ -473,7 +512,7 @@ class AccessReportingTests(TestCase):
         self.assertEqual(set(recipients), {reviewer.email, superuser.email})
         self.assertNotIn(researcher.email, recipients)
 
-    def test_audit_access_is_read_only_and_reports_policy_violations(self):
+    def test_audit_access_is_read_only_and_reports_access_state(self):
         """The audit command reports flags without mutating users or groups."""
         staff = get_user_model().objects.create_user(username="legacy", is_staff=True)
         before = list(
@@ -491,7 +530,17 @@ class AccessReportingTests(TestCase):
         )
 
         self.assertEqual(before, after)
-        self.assertIn(staff.username, report["policy_violations"])
+        staff_row = next(
+            user for user in report["users"] if user["username"] == staff.username
+        )
+        self.assertTrue(staff_row["is_staff"])
+        self.assertFalse(staff_row["is_superuser"])
+        self.assertEqual(staff_row["groups"], [])
+        self.assertEqual(
+            staff_row["permissions"],
+            {permission: False for permission in FEATURE_PERMISSIONS},
+        )
+        self.assertNotIn("policy_violations", report)
         self.assertEqual(
             sorted(report["feature_permissions"]), sorted(FEATURE_PERMISSIONS)
         )

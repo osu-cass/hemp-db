@@ -4,12 +4,12 @@ This page contains information for users with elevated privileges on the site.
 
 ## Users, Groups, and Permissions
 
-Django applications have two built-in users "statuses": `staff` and `superuser`.
+Django has two built-in user flags: `staff` and `superuser`.
 
-| Status      | Description                                                                   |
-|-------------|-------------------------------------------------------------------------------|
-| `staff`     | A legacy flag reported by the audit command; it does not grant HempDB access. |
-| `superuser` | Designates that a user has all permissions without explicitly assigning them. |
+| Flag | Description |
+|---|---|
+| `staff` | Allows an active user to enter Django Admin. The user still needs the relevant model permissions to view or change records there. |
+| `superuser` | Grants every permission. Django Admin access also requires Staff and Active. |
 
 In addition to the above Django statuses, there are `Groups` and `Permissions`.
 * `Permissions` are individual permissions that grant access to do things on the site (e.g. performing specific CRUD operations on models).
@@ -42,9 +42,10 @@ alone are sufficient for the review queues.
 To assign access, open Admin > Groups, assign the permissions above, and add
 users to that group. Run `python manage.py audit_access` before and after an
 access review. The command is read-only and reports flags, group names,
-effective feature permissions, and active non-superuser staff policy
-violations. Only an active user with both `is_staff` and `is_superuser`
-enabled can open `/admin/`; neither flag alone is sufficient.
+and effective feature permissions. Active Staff users can open `/admin/`.
+Their assigned model permissions control what they can access there.
+Superusers have every permission, while inactive and non-Staff users cannot
+enter Django Admin.
 
 ### Spreadsheet uploads
 
@@ -57,12 +58,15 @@ batch.
 
 ## User Management: Django Admin Portal
 
-Once logged in, active users with both Staff and Superuser enabled can access
-Django's admin portal by clicking on the "Admin" link in the username dropdown.
+Once logged in, active Staff users can access Django's admin portal by clicking
+the "Admin" link in the username dropdown.
 
 ![admin link](images/admin.png)
 
-From here, active superusers can configure `Groups` (like what permissions each group has), `Users` (like granting `staff` and `superuser` status), and perform the standard CRUD operations on all HempDB models.
+The portal only shows models for which the user has permission. Superusers can
+configure all Groups and Users and can work with every registered model. A
+limited Staff user can manage only the models and actions granted through
+Django permissions.
 
 ![admin portal](images/admin_portal.png)
 
@@ -126,7 +130,7 @@ superusers, receive email notifications when a pending change is created.
 If a user would like to receive these emails, they can follow these steps:
 1. Log in to [HempDB](https://hempdb.cass.oregonstate.edu/).
 2. Click your username in the top right, and click `Admin` from the dropdown.
-  * If you do not see `Admin` in this dropdown, contact an active superuser to do the remaining steps for you.
+  * If you do not see `Admin` in this dropdown, contact a Staff user who has permission to manage Users and Groups.
 3. Once in the Django admin portal, click `Users` on the left.
 4. Click the name of the user. Emails will be sent to the email associated with this user's account.
 5. Scroll down to the groups section and add the user to a group containing the `review_pending_change` permission, or grant that permission directly. Anyone with that effective permission will receive emails.
@@ -136,7 +140,9 @@ If a user would like to receive these emails, they can follow these steps:
 
 ## Resources
 
-The `resource` table allows active superusers to make changes to text and resources displayed on the website without having to make changes to the codebase. This table allows superusers to configure the following in the Django admin portal:
+The `resource` table allows active Staff users with the corresponding model
+permissions to change text and resources displayed on the website without a
+code change. These users can configure the following in Django Admin:
 
 * Home Page Title
 * Home Page Text
@@ -148,11 +154,14 @@ The `resource` table allows active superusers to make changes to text and resour
 
 ![articles](images/articles.png)
 
-Resources can be accessed by clicking on the user's dropdown in the top-right when logged in as an active superuser. Click on "Admin", and navigate to the Resources table under the HEMP DB module.
+To access Resources, log in as an active Staff user with the required Resources
+model permissions. Click "Admin" in the user dropdown, then open the Resources
+table under the HEMP DB module.
 
 ![resources](images/resources.png)
 
-By clicking on a resource object, the superuser can create, edit, and delete any of these snippets. The table showing the snippets has the following columns:
+The actions available on each resource depend on the Staff user's assigned
+model permissions. The resource table has the following columns:
 
 ### Resource Fields
 

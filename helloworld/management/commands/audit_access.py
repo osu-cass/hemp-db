@@ -16,7 +16,6 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         """Write the access report without changing database state."""
         users = []
-        policy_violations = []
         for user in get_user_model().objects.prefetch_related("groups").order_by("username"):
             row = {
                 "username": user.get_username(),
@@ -27,11 +26,8 @@ class Command(BaseCommand):
                 "permissions": effective_feature_permissions(user),
             }
             users.append(row)
-            if user.is_staff and not user.is_superuser:
-                policy_violations.append(user.get_username())
 
         self.stdout.write(json.dumps({
             "feature_permissions": list(FEATURE_PERMISSIONS),
             "users": users,
-            "policy_violations": policy_violations,
         }, sort_keys=True))

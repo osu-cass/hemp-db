@@ -61,7 +61,7 @@
             Hello, {{ user.get_username }}
           </a>
           <div class="dropdown-menu dropdown-menu-end" aria-labelledby="navbarDropdown">
-            {% if user.is_active and user.is_superuser %}
+            {% if user.is_active and user.is_staff %}
               <a class="dropdown-item" href="/admin">Admin</a>
             {% endif %}
             {% if perms.helloworld.review_pending_change %}

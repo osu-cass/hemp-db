@@ -7,6 +7,7 @@ from unittest import skipUnless
 from unittest.mock import patch
 
 import pandas as pd
+from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.db import close_old_connections, connection, connections, transaction
 from django.db.models.deletion import ProtectedError
@@ -15,7 +16,7 @@ from django.test import RequestFactory, SimpleTestCase, TestCase, TransactionTes
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
-from .admin import CompanyUploadBatchAdmin, HempAdminSite, admin_site
+from .admin import CompanyUploadBatchAdmin
 from .models import (
     Company,
     CompanyUploadBatch,
@@ -223,8 +224,8 @@ class UploadBatchSafetyTests(CompanyImportTestBase):
         self.assertTrue(CompanyUploadBatch.objects.filter(pk=batch.pk).exists())
 
     def test_batch_admin_is_read_only(self):
-        """Allow superusers to inspect batches but not mutate them."""
-        model_admin = CompanyUploadBatchAdmin(CompanyUploadBatch, admin_site)
+        """Allow permitted Staff users to inspect batches but not mutate them."""
+        model_admin = CompanyUploadBatchAdmin(CompanyUploadBatch, admin.site)
         request = RequestFactory().get("/admin/helloworld/companyuploadbatch/")
 
         self.assertFalse(model_admin.has_add_permission(request))
@@ -237,7 +238,7 @@ class AdminAccessTests(TestCase):
 
     def setUp(self):
         """Create a request used for direct admin-site checks."""
-        self.admin_site = HempAdminSite()
+        self.admin_site = admin.AdminSite()
         self.request = RequestFactory().get("/admin/")
 
     def _has_access(self, *, is_active=True, is_staff=False, is_superuser=False):
@@ -261,11 +262,13 @@ class AdminAccessTests(TestCase):
             self._has_access(is_active=False, is_staff=True, is_superuser=True)
         )
 
+    def test_allows_active_staff_without_superuser(self):
+        """Allow active Staff users into the standard admin site."""
+        self.assertTrue(self._has_access(is_staff=True))
+
     def test_allows_active_staff_superuser(self):
         """Allow a user with all required admin flags."""
-        self.assertTrue(
-            self._has_access(is_staff=True, is_superuser=True)
-        )
+        self.assertTrue(self._has_access(is_staff=True, is_superuser=True))
 
 
 class PendingCompanyApprovalTests(CompanyImportTestBase):

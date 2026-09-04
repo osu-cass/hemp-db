@@ -1,5 +1,5 @@
+from django.contrib import admin
 from django.urls import include, path
-from helloworld.admin import admin_site
 
 from hempdb import health
 
@@ -14,6 +14,6 @@ urlpatterns = [
     path("health/live/", health.live, name="health-live"),
     path("health/ready/", health.ready, name="health-ready"),
     path("", include("helloworld.urls")),
-    path('admin/', admin_site.urls),
+    path('admin/', admin.site.urls),
     path("user/", include("django.contrib.auth.urls")),
 ]

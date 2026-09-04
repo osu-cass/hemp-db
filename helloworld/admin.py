@@ -3,8 +3,6 @@ from django.utils.html import format_html
 from django.urls import reverse
 
 from django.contrib import admin
-from django.contrib.auth.admin import GroupAdmin, UserAdmin
-from django.contrib.auth.models import Group, User
 
 from django.contrib.admin.models import LogEntry
 
@@ -25,40 +23,26 @@ from .models import CompanyUploadBatch
 from .forms import ResourceForm
 
 
-class HempAdminSite(admin.AdminSite):
-    """Admin site restricted to active staff superusers."""
-
-    def has_permission(self, request):
-        """Require all built-in administrator flags."""
-        user = request.user
-        return user.is_active and user.is_staff and user.is_superuser
-
-
-admin_site = HempAdminSite(name="admin")
-admin.site = admin_site
-admin_site.register(User, UserAdmin)
-admin_site.register(Group, GroupAdmin)
-
 # Customize Django Administration header/title
-admin_site.site_header = "HempDB Administration"
-admin_site.site_title = "HempDB Admin Portal"
+admin.site.site_header = "HempDB Administration"
+admin.site.site_title = "HempDB Admin Portal"
 # admin.site.index_title = "HempDB Admin"
 
 # Enables the Log Entries ModelAdmin object for viewing
-admin_site.register(LogEntry)
+admin.site.register(LogEntry)
 
 # Register DB models here for Django admin users with model permissions
 
-@admin.register(Company, site=admin_site)
+@admin.register(Company)
 class CompanyAdmin(admin.ModelAdmin):
     list_display = ["Name", "id"]
     search_fields = ["Name"]
 
-@admin.register(PendingCompany, site=admin_site)
+@admin.register(PendingCompany)
 class PendingCompanyAdmin(admin.ModelAdmin):
     pass
 
-@admin.register(PendingChanges, site=admin_site)
+@admin.register(PendingChanges)
 class PendingChangesAdmin(admin.ModelAdmin):
     list_display = ["company_link", "changeType", "author", "colored_status", "created_at_pst"]
     
@@ -108,9 +92,9 @@ class PendingChangesAdmin(admin.ModelAdmin):
     created_at_pst.short_description = "Created at (PST)"
 
 
-@admin.register(CompanyUploadBatch, site=admin_site)
+@admin.register(CompanyUploadBatch)
 class CompanyUploadBatchAdmin(admin.ModelAdmin):
-    """Expose upload batches to superusers for operational inspection."""
+    """Expose upload batches for read-only operational inspection."""
 
     list_display = ["id", "original_filename", "uploader", "status", "created_at", "reviewer"]
     list_filter = ["status", "review_mode"]
@@ -138,39 +122,39 @@ class CompanyUploadBatchAdmin(admin.ModelAdmin):
         """Prevent deleting batches from the administration site."""
         return False
 
-@admin.register(Resources, site=admin_site)
+@admin.register(Resources)
 class ResourcesAdmin(admin.ModelAdmin):
     form = ResourceForm
     list_display = ["type", "title"]
 
-@admin.register(Solution, site=admin_site)
+@admin.register(Solution)
 class SolutionAdmin(admin.ModelAdmin):
     pass
 
-@admin.register(Category, site=admin_site)
+@admin.register(Category)
 class CategoryAdmin(admin.ModelAdmin):
     pass
 
-@admin.register(stakeholderGroups, site=admin_site)
+@admin.register(stakeholderGroups)
 class stakeholderGroupsAdmin(admin.ModelAdmin):
     pass
 
-@admin.register(Stage, site=admin_site)
+@admin.register(Stage)
 class StageAdmin(admin.ModelAdmin):
     pass
 
-@admin.register(ProductGroup, site=admin_site)
+@admin.register(ProductGroup)
 class ProductGroupAdmin(admin.ModelAdmin):
     pass
 
-@admin.register(Status, site=admin_site)
+@admin.register(Status)
 class StatusAdmin(admin.ModelAdmin):
     pass
 
-@admin.register(Industry, site=admin_site)
+@admin.register(Industry)
 class IndustryAdmin(admin.ModelAdmin):
     pass
 
-@admin.register(Grower, site=admin_site)
+@admin.register(Grower)
 class GrowerAdmin(admin.ModelAdmin):
     pass
