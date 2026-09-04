@@ -4,12 +4,12 @@ This page contains information for users with elevated privileges on the site.
 
 ## Users, Groups, and Permissions
 
-Django applications have two built-in users "statuses": `staff` and `superuser`.
+Django has two built-in user flags: `staff` and `superuser`.
 
-| Status      | Description                                                                   |
-|-------------|-------------------------------------------------------------------------------|
-| `staff`     | Designates whether a user can log into the Django admin portal.               |
-| `superuser` | Designates that a user has all permissions without explicitly assigning them. |
+| Flag | Description |
+|---|---|
+| `staff` | Allows an active user to enter Django Admin. The user still needs the relevant model permissions to view or change records there. |
+| `superuser` | Grants every permission. Django Admin access also requires Staff and Active. |
 
 In addition to the above Django statuses, there are `Groups` and `Permissions`.
 * `Permissions` are individual permissions that grant access to do things on the site (e.g. performing specific CRUD operations on models).
@@ -18,13 +18,55 @@ In addition to the above Django statuses, there are `Groups` and `Permissions`.
 
 All of this can be configured in the Django admin portal (see next section).
 
+### HempDB feature permissions
+
+The application uses stable permissions rather than Group names. Groups remain
+assignable containers for the sysadmin and may be renamed without changing
+application behavior.
+
+The four permissions below control HempDB features. They do not replace
+Django's built-in model permissions, such as `helloworld.view_company`.
+
+| Access level | Built-in permissions | HempDB feature permissions | Staff / superuser flags |
+|---|---|---|---|
+| Researcher | `helloworld.view_company` required for the Companies page and upload entry point | `helloworld.submit_company_change`, `helloworld.upload_company_data` | Neither |
+| Data Manager | `helloworld.view_company` recommended when browsing current company records; not required for pending-change or upload-review pages | `helloworld.review_pending_change`, `helloworld.review_company_upload` | Neither |
+| Active read-only | Appropriate `view_*` permissions only, typically `helloworld.view_company` | None | Neither |
+| Superuser | All permissions implicitly | All permissions implicitly | Both |
+
+Do not grant add, change, or delete permissions to an Active read-only user.
+Assign `helloworld.view_company` to a Data Manager when the role should compare
+pending work with published company records; the review feature permissions
+alone are sufficient for the review queues.
+
+To assign access, open Admin > Groups, assign the permissions above, and add
+users to that group. Run `python manage.py audit_access` before and after an
+access review. The command is read-only and reports flags, group names,
+and effective feature permissions. Active Staff users can open `/admin/`.
+Their assigned model permissions control what they can access there.
+Superusers have every permission, while inactive and non-Staff users cannot
+enter Django Admin.
+
+### Spreadsheet uploads
+
+Users with `helloworld.upload_company_data` stage spreadsheets. Each upload
+gets its own batch and remains separate from every other upload. Researchers
+see their own batches and can inspect their status. Users with
+`helloworld.review_company_upload` see pending batches from all uploaders and
+are the only users who can approve all rows, approve unique rows, or cancel a
+batch.
+
 ## User Management: Django Admin Portal
 
-Once logged in, staff users have the ability to access Django's admin portal by clicking on the "Admin" link in the username dropdown.
+Once logged in, active Staff users can access Django's admin portal by clicking
+the "Admin" link in the username dropdown.
 
 ![admin link](images/admin.png)
 
-From here, staff users will be able to configure `Groups` (like what permissions each group has), `Users` (like granting `staff` and `superuser` status), and even perform the standard CRUD operations on all HempDB models.
+The portal only shows models for which the user has permission. Superusers can
+configure all Groups and Users and can work with every registered model. A
+limited Staff user can manage only the models and actions granted through
+Django permissions.
 
 ![admin portal](images/admin_portal.png)
 
@@ -48,7 +90,12 @@ To edit a company record, simply click on the **edit** button in the "Actions" c
 
 ## Transaction Approvals
 
-All transactions regarding Companies (create, edit, delete) have to be approved by a staff user. To see all pending changes, navigate to the changes view by clicking "Changes" in the nav bar.
+Users with `helloworld.submit_company_change` may propose company create, edit,
+and delete changes. Users with `helloworld.review_pending_change` may review,
+approve, and reject them. A submitter may inspect their own pending change; a
+reviewer may inspect all pending changes and may also approve their own work.
+To see all pending changes, navigate to the changes view by clicking "Changes"
+in the nav bar.
 
 All currently pending changes will be listed here. One will find three types of changes: create, edit, deletion. As the names imply, they want to create, edit, delete a company, respectively. 
 
@@ -62,11 +109,11 @@ Each company drop-down will present a list that shows basic data about the chang
 
 These changes are sorted with the most recent being at the top of the list.
 
-To approve / reject the proposed change, the staff user needs to click on the blue highlighted URL in the change list under each company.
+To approve / reject the proposed change, a user with the review permission needs to click on the blue highlighted URL in the change list under each company.
 
 ![approval](images/approve.png)
 
-Here the change can be approved or rejected. The staff user can also see all the columns for the Company, and their values.
+Here the change can be approved or rejected. The reviewer can also see all the columns for the Company, and their values.
 
 1. For edit changes, 2 columns will be presented, the company column displays all the values currently set, and the pending company values displays the new values.
 Any field that is different will be highlighted in red for convenience to easily understand what changes were proposed.
@@ -77,22 +124,25 @@ Clicking Approve will approve the change, and the change will be processed immed
 
 ## Receiving Pending Change Emails
 
-Any user in a group with the substring "admin" (i.e. the `Admin` and `SrAdmin` groups), will receive email notifications to the email associated with their account when a pending change is created. In other words, each time a company is created, edited, or deleted, and the change needs approval, these users will receive an email.
+Active users with `helloworld.review_pending_change`, including active
+superusers, receive email notifications when a pending change is created.
 
 If a user would like to receive these emails, they can follow these steps:
 1. Log in to [HempDB](https://hempdb.cass.oregonstate.edu/).
 2. Click your username in the top right, and click `Admin` from the dropdown.
-  * If you do not see `Admin` in this dropdown, contact someone with `staff` status to do the remaining steps for you.
+  * If you do not see `Admin` in this dropdown, contact a Staff user who has permission to manage Users and Groups.
 3. Once in the Django admin portal, click `Users` on the left.
 4. Click the name of the user. Emails will be sent to the email associated with this user's account.
-5. Scroll down to the groups section and add the user to the `Admin` and/or `SrAdmin` group by clicking on either group and hitting the right arrow. Anyone in either of these groups will receive emails.
+5. Scroll down to the groups section and add the user to a group containing the `review_pending_change` permission, or grant that permission directly. Anyone with that effective permission will receive emails.
 6. Click `Save` at the bottom of this page.
 
 **Important:** These emails may first arrive in the Junk/Spam folder; from there you can trust the sender. Emails may also take up to 5 minutes to send from when the change is created.
 
 ## Resources
 
-The `resource` table allows staff users to make changes to text and resources displayed on the website without having to make changes to the codebase. This table allows staff users to configure the following in the Django admin portal:
+The `resource` table allows active Staff users with the corresponding model
+permissions to change text and resources displayed on the website without a
+code change. These users can configure the following in Django Admin:
 
 * Home Page Title
 * Home Page Text
@@ -104,11 +154,14 @@ The `resource` table allows staff users to make changes to text and resources di
 
 ![articles](images/articles.png)
 
-Resources can be accessed by clicking on the user's dropdown in the top-right when logged in as a staff user. Click on "Admin", and navigate to the Resources table under the HEMP DB module.
+To access Resources, log in as an active Staff user with the required Resources
+model permissions. Click "Admin" in the user dropdown, then open the Resources
+table under the HEMP DB module.
 
 ![resources](images/resources.png)
 
-By clicking on resource object, the staff user can create, edit, delete any of these snippets. The table showing the snippets has the following columns:
+The actions available on each resource depend on the Staff user's assigned
+model permissions. The resource table has the following columns:
 
 ### Resource Fields
 
@@ -161,7 +214,7 @@ Users are able to see all models in the database by clicking the database dropdo
 
 ![models](images/tables.png)
 
-These behave the same way as the Companies table. Staff users are able to create and delete records. These are **not** part of the transaction approval process, so any changes will be **processed immediately**.
+These behave the same way as the Companies table. Users with the corresponding add/delete permissions can create and delete records. These are **not** part of the transaction approval process, so any changes will be **processed immediately**.
 
 ## FAQ
 

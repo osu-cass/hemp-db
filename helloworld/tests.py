@@ -1,6 +1,8 @@
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Permission
+from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 from django.urls import reverse
 
@@ -15,6 +17,7 @@ from .models import ProductGroup
 from .models import Grower
 from .models import Industry
 from .models import Status
+from .permissions import SUBMIT_COMPANY_CHANGE
 
 class CategoryTestCase(TestCase):
     def setUp(self):
@@ -311,6 +314,12 @@ class CompanyEditTestCase(TestCase):
             password="test-password",
             is_staff=True,
         )
+        self.user.user_permissions.add(
+            Permission.objects.get(
+                content_type=ContentType.objects.get_for_model(PendingChanges),
+                codename=SUBMIT_COMPANY_CHANGE.rsplit(".", 1)[1],
+            )
+        )
         self.industry = Industry.objects.create(industry="Test industry")
         self.status = Status.objects.create(status="Active")
         self.grower = Grower.objects.create(grower="Test grower")
@@ -348,7 +357,6 @@ class CompanyEditTestCase(TestCase):
         self.assertEqual(pending_change.changeType, "edit")
         self.assertEqual(pending_change.author, self.user)
         self.assertEqual(pending_company.Name, "Edited company")
-        self.assertIsNone(pending_company.import_batch_id)
 
         self.company.refresh_from_db()
         self.assertEqual(self.company.Name, "Original company")

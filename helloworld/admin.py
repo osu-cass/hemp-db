@@ -18,8 +18,10 @@ from .models import ProductGroup
 from .models import Status
 from .models import Industry
 from .models import Grower
+from .models import CompanyUploadBatch
 
 from .forms import ResourceForm
+
 
 # Customize Django Administration header/title
 admin.site.site_header = "HempDB Administration"
@@ -29,7 +31,7 @@ admin.site.site_title = "HempDB Admin Portal"
 # Enables the Log Entries ModelAdmin object for viewing
 admin.site.register(LogEntry)
 
-# Register DB models here for staff access
+# Register DB models here for Django admin users with model permissions
 
 @admin.register(Company)
 class CompanyAdmin(admin.ModelAdmin):
@@ -88,6 +90,37 @@ class PendingChangesAdmin(admin.ModelAdmin):
         return local_dt.strftime('%Y-%m-%d %H:%M:%S')
 
     created_at_pst.short_description = "Created at (PST)"
+
+
+@admin.register(CompanyUploadBatch)
+class CompanyUploadBatchAdmin(admin.ModelAdmin):
+    """Expose upload batches for read-only operational inspection."""
+
+    list_display = ["id", "original_filename", "uploader", "status", "created_at", "reviewer"]
+    list_filter = ["status", "review_mode"]
+    search_fields = ["original_filename", "uploader__username", "reviewer__username"]
+    readonly_fields = [
+        "id",
+        "uploader",
+        "original_filename",
+        "status",
+        "review_mode",
+        "created_at",
+        "reviewed_at",
+        "reviewer",
+    ]
+
+    def has_add_permission(self, request):
+        """Keep upload batches created by the upload workflow."""
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        """Allow inspection without allowing batch metadata changes."""
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        """Prevent deleting batches from the administration site."""
+        return False
 
 @admin.register(Resources)
 class ResourcesAdmin(admin.ModelAdmin):

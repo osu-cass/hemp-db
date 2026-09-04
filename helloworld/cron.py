@@ -5,7 +5,7 @@ from django.conf import settings
 from django_cron import CronJobBase, Schedule
 from helloworld.management.commands.audit import Command as Audit
 from django.core.mail import EmailMessage
-from django.contrib.auth.models import User, Group
+from django.contrib.auth.models import User
 
 logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parent
@@ -37,17 +37,20 @@ class CronAudit(CronJobBase):
     code = 'helloworld.CronAudit'
 
     def do(self):
-        
+        """Run the audit and email the resulting report."""
         logger.info("Cron Audit Job Starting...")
-        # Group IDs from admin authority group
-        admin_groups = Group.objects.filter(name='Admin')
-        admin_group_ids = admin_groups.values_list('id', flat=True)
-            # Get list of emails for all users that are some form of admin
-        admin_emails = list(User.objects.filter(groups__id__in=admin_group_ids).values_list('email', flat=True).distinct())
+        admin_emails = list(
+            User.objects.filter(is_active=True, is_superuser=True)
+            .exclude(email="")
+            .values_list("email", flat=True)
+            .distinct()
+        )
 
         EMAIL_USER = settings.EMAIL_HOST_USER
         AUDIT_RECIPIENT = settings.AUDIT_RECIPIENT
-        recipients = admin_emails + ([AUDIT_RECIPIENT] if AUDIT_RECIPIENT else [])
+        recipients = list(dict.fromkeys(
+            admin_emails + ([AUDIT_RECIPIENT] if AUDIT_RECIPIENT else [])
+        ))
         filedate = datetime.now().date()
 
         try:

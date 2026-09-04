@@ -5,77 +5,62 @@
 {% endblock %}
 
 {% block content %}
-  {% if data %}  
-    <p>
-      Showing {{ data.start_index }}-{{ data.end_index }} of {{ data.paginator.count }} staged companies
-    </p>
-
+  {% if batches %}
+    <h1>Company uploads</h1>
     <table class="table table-striped table-sm">
       <thead>
-        <tr>
-          <th scope="col">Name</th>
-          <th scope="col">Duplicate</th>
-        </tr>
+        <tr><th>File</th><th>Uploader</th><th>Status</th><th>Created</th><th></th></tr>
       </thead>
       <tbody>
-        {% for row in data %}
-          <tr class="{% if row.duplicate %} table-danger {% else %} table-success {% endif %}">
-            <td>{{ row.Name }}</td>
-            <td>{{ row.duplicate }}</td>
+        {% for item in batches %}
+          <tr>
+            <td>{{ item.original_filename }}</td>
+            <td>{{ item.uploader|default:"Legacy staging" }}</td>
+            <td>{{ item.get_status_display }}</td>
+            <td>{{ item.created_at }}</td>
+            <td><a href="{% url 'upload-batch' item.id %}">Inspect</a></td>
           </tr>
         {% endfor %}
       </tbody>
     </table>
-
-    {% if data.has_other_pages %}
-      <nav aria-label="Upload preview pages">
-        <ul class="pagination justify-content-center">
-          {% if data.has_previous %}
-            <li class="page-item">
-              <a class="page-link" href="?page=1">First</a>
-            </li>
-            <li class="page-item">
-              <a class="page-link" href="?page={{ data.previous_page_number }}">Previous</a>
-            </li>
-          {% else %}
-            <li class="page-item disabled">
-              <span class="page-link">First</span>
-            </li>
-            <li class="page-item disabled">
-              <span class="page-link">Previous</span>
-            </li>
-          {% endif %}
-          <li class="page-item disabled">
-            <span class="page-link">Page {{ data.number }} of {{ data.paginator.num_pages }}</span>
-          </li>
-          {% if data.has_next %}
-            <li class="page-item">
-              <a class="page-link" href="?page={{ data.next_page_number }}">Next</a>
-            </li>
-            <li class="page-item">
-              <a class="page-link" href="?page={{ data.paginator.num_pages }}">Last</a>
-            </li>
-          {% else %}
-            <li class="page-item disabled">
-              <span class="page-link">Next</span>
-            </li>
-            <li class="page-item disabled">
-              <span class="page-link">Last</span>
-            </li>
-          {% endif %}
-        </ul>
-      </nav>
+  {% elif batch %}
+    <h1>{{ batch.original_filename }}</h1>
+    <p>Status: {{ batch.get_status_display }}</p>
+    {% if data %}
+      <p>Showing {{ data.start_index }}-{{ data.end_index }} of {{ data.paginator.count }} staged companies</p>
+      <table class="table table-striped table-sm">
+        <thead><tr><th scope="col">Name</th><th scope="col">Duplicate</th></tr></thead>
+        <tbody>
+          {% for row in data %}
+            <tr class="{% if row.duplicate %}table-danger{% else %}table-success{% endif %}">
+              <td>{{ row.Name }}</td>
+              <td>{{ row.duplicate }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if data.has_other_pages %}
+        <nav aria-label="Upload preview pages">
+          <ul class="pagination justify-content-center">
+            {% if data.has_previous %}<li class="page-item"><a class="page-link" href="?page={{ data.previous_page_number }}">Previous</a></li>{% endif %}
+            <li class="page-item disabled"><span class="page-link">Page {{ data.number }} of {{ data.paginator.num_pages }}</span></li>
+            {% if data.has_next %}<li class="page-item"><a class="page-link" href="?page={{ data.next_page_number }}">Next</a></li>{% endif %}
+          </ul>
+        </nav>
+      {% endif %}
+    {% else %}
+      <p>No companies staged in this batch.</p>
     {% endif %}
-
-    <form action="/upload_wizard" method="POST"> 
-      {% csrf_token %}
-      <button type="submit" name="add-all" class="btn btn-primary">Add All</button>
-      <button type="submit" name="add-unique" class="btn btn-primary">Add Unique</button>
-      <button type="submit" name="cancel" class="btn btn-primary">Cancel All</button>
-    </form>
+    {% if perms.helloworld.review_company_upload and batch.status == "P" %}
+      <form action="{% url 'upload-batch' batch.id %}" method="post">
+        {% csrf_token %}
+        <button type="submit" name="add-all" class="btn btn-primary">Approve all</button>
+        <button type="submit" name="add-unique" class="btn btn-primary">Approve unique</button>
+        <button type="submit" name="cancel" class="btn btn-secondary">Cancel</button>
+      </form>
+    {% endif %}
+    <a href="{% url 'upload-wizard' %}">Back to uploads</a>
   {% else %}
-    <p style="display: flex; height: 80vh; align-items: center; text-align: center; justify-content: center;">
-      No Uploads staged
-    </p>
+    <p>No uploads staged</p>
   {% endif %}
 {% endblock %}

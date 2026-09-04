@@ -1,3 +1,5 @@
+import uuid
+
 from django.db import models
 from django.utils import timezone
 from django.contrib.auth.models import User
@@ -17,15 +19,6 @@ from django.utils.translation import gettext_lazy as _
 # lowercase
 # snake_case
 # singular 
-
-class UploadIndex(models.Model):
-    pendingID = models.CharField(max_length=255)
-
-    class Meta:
-        db_table = "upload_index"
-
-        verbose_name = "Upload Index"
-        verbose_name_plural = "Upload Indexes"
 
 class Resources(models.Model):
     type = models.CharField(max_length=255)
@@ -221,8 +214,10 @@ class CompanyDetail(models.Model):
 
 class PendingCompany(CompanyDetail):
 
-    # Correlation token for bulk-imported rows; cleared once an import commits.
-    import_batch_id = models.UUIDField(null=True, blank=True, db_index=True, editable=False)
+    upload_batch = models.ForeignKey(
+        "CompanyUploadBatch", null=True, blank=True, on_delete=models.PROTECT,
+        related_name="pending_companies", editable=False,
+    )
 
     class Meta:
         db_table = "pending_company"
@@ -262,5 +257,37 @@ class PendingChanges(models.Model):
     class Meta:
         db_table = "pending_change"
 
+        permissions = (("submit_company_change", "Can submit company changes"),
+                       ("review_pending_change", "Can review pending company changes"))
+
         verbose_name = "Pending Change"
         verbose_name_plural = "Pending Changes"
+
+
+class CompanyUploadBatch(models.Model):
+    """A reviewable group of companies staged by one spreadsheet upload."""
+
+    class Status(models.TextChoices):
+        PENDING = "P", "Pending"
+        APPROVED = "A", "Approved"
+        CANCELED = "C", "Canceled"
+
+    class ReviewMode(models.TextChoices):
+        ALL = "all", "All"
+        UNIQUE = "unique", "Unique"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    uploader = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL)
+    original_filename = models.CharField(max_length=255)
+    status = models.CharField(max_length=1, choices=Status.choices, default=Status.PENDING)
+    review_mode = models.CharField(max_length=10, choices=ReviewMode.choices, blank=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    reviewer = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="reviewed_company_uploads",
+    )
+
+    class Meta:
+        permissions = (("upload_company_data", "Can stage a spreadsheet upload"),
+                       ("review_company_upload", "Can review a company upload"))

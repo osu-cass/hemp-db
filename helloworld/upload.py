@@ -1,8 +1,7 @@
-"""Validation and persistence helpers for staff company uploads."""
+"""Validation and persistence helpers for company uploads."""
 
 from __future__ import annotations
 
-import uuid
 import zipfile
 
 import pandas as pd
@@ -10,7 +9,7 @@ from django.db import transaction
 from django.db.models import Exists, Min, OuterRef
 from django.utils import timezone
 
-from .models import Company, Grower, Industry, PendingCompany, Status, UploadIndex
+from .models import Company, CompanyUploadBatch, Grower, Industry, PendingCompany, Status
 from .signals import invalidate_map_cache
 
 
@@ -24,7 +23,9 @@ FOREIGN_KEY_MODELS = {
     "Industry": Industry,
     "Grower": Grower,
 }
-EXCLUDED_MODEL_FIELDS = frozenset({"id", "dateCreated", "lastUpdated", "import_batch_id"})
+EXCLUDED_MODEL_FIELDS = frozenset({
+    "id", "dateCreated", "lastUpdated", "upload_batch"
+})
 IMPORT_BATCH_SIZE = 500
 
 SPREADSHEET_FIELDS = frozenset(
@@ -190,38 +191,59 @@ def _validated_records(dataframe):
 
 
 @transaction.atomic
-def import_pending_companies(dataframe):
-    """Validate and atomically create pending companies and upload indexes."""
+def import_pending_companies(dataframe, *, batch=None):
+    """Validate and atomically create pending companies for an upload batch."""
     validate_upload_columns(dataframe)
     records = _validated_records(dataframe)
-    batch_id = uuid.uuid4()
-    staged = [PendingCompany(import_batch_id=batch_id, **record) for record in records]
+    if batch is None:
+        batch = CompanyUploadBatch.objects.create(original_filename="programmatic upload")
+    elif not isinstance(batch, CompanyUploadBatch):
+        batch = CompanyUploadBatch.objects.get(pk=batch)
+    staged = [
+        PendingCompany(
+            upload_batch=batch,
+            **record,
+        )
+        for record in records
+    ]
     PendingCompany.objects.bulk_create(staged, batch_size=IMPORT_BATCH_SIZE)
 
     # MySQL cannot report generated ids from bulk_create; correlate rows by batch.
-    persisted = list(PendingCompany.objects.filter(import_batch_id=batch_id).order_by("pk"))
+    persisted = list(PendingCompany.objects.filter(upload_batch=batch).order_by("pk"))
     if len(persisted) != len(staged):
         raise RuntimeError("The number of staged rows did not match the uploaded rows.")
 
-    UploadIndex.objects.bulk_create(
-        (UploadIndex(pendingID=str(company.pk)) for company in persisted),
-        batch_size=IMPORT_BATCH_SIZE,
-    )
-    PendingCompany.objects.filter(import_batch_id=batch_id).update(import_batch_id=None)
-    for company in persisted:
-        company.import_batch_id = None
     return persisted
 
 
-def approve_pending_companies(*, unique_only: bool) -> int:
-    """Promote indexed pending companies and remove the upload staging rows."""
+def _mark_batch_reviewed(batch, *, unique_only: bool, reviewer=None):
+    """Record the review outcome for a locked upload batch."""
+    batch.status = CompanyUploadBatch.Status.APPROVED
+    batch.review_mode = (
+        CompanyUploadBatch.ReviewMode.UNIQUE
+        if unique_only
+        else CompanyUploadBatch.ReviewMode.ALL
+    )
+    batch.reviewed_at = timezone.now()
+    batch.reviewer = reviewer
+    batch.save(update_fields=["status", "review_mode", "reviewed_at", "reviewer"])
+
+
+def approve_pending_companies(*, unique_only: bool, batch, reviewer=None) -> int | None:
+    """Promote one upload batch and mark it reviewed."""
     with transaction.atomic():
+        batch = CompanyUploadBatch.objects.select_for_update().get(
+            pk=getattr(batch, "pk", batch)
+        )
+        if batch.status != CompanyUploadBatch.Status.PENDING:
+            return None
         pending_ids = list(
-            UploadIndex.objects.select_for_update().values_list(
-                "pendingID", flat=True
-            )
+            PendingCompany.objects.filter(upload_batch=batch)
+            .select_for_update()
+            .values_list("pk", flat=True)
         )
         if not pending_ids:
+            _mark_batch_reviewed(batch, unique_only=unique_only, reviewer=reviewer)
             return 0
 
         indexed_pending = PendingCompany.objects.filter(pk__in=pending_ids).order_by(
@@ -257,7 +279,21 @@ def approve_pending_companies(*, unique_only: bool) -> int:
         Company.objects.bulk_create(companies, batch_size=IMPORT_BATCH_SIZE)
 
         PendingCompany.objects.filter(pk__in=pending_ids).delete()
-        UploadIndex.objects.all().delete()
+        _mark_batch_reviewed(batch, unique_only=unique_only, reviewer=reviewer)
         if companies:
             transaction.on_commit(lambda: invalidate_map_cache(sender=Company))
         return len(companies)
+
+
+@transaction.atomic
+def cancel_upload_batch(batch, reviewer):
+    """Cancel one pending upload batch and remove its staged rows."""
+    batch = CompanyUploadBatch.objects.select_for_update().get(pk=getattr(batch, "pk", batch))
+    if batch.status != CompanyUploadBatch.Status.PENDING:
+        return False
+    PendingCompany.objects.filter(upload_batch=batch).delete()
+    batch.status = CompanyUploadBatch.Status.CANCELED
+    batch.reviewed_at = timezone.now()
+    batch.reviewer = reviewer
+    batch.save(update_fields=["status", "reviewed_at", "reviewer"])
+    return True

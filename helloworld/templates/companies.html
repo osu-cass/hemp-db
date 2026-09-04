@@ -16,10 +16,10 @@
 {% endif %}
 
 <div class="btn-group" style="display: block;" role="group" aria-label="Button group with nested dropdown">
-  {% if perms.helloworld.add_pendingcompany %}
+  {% if perms.helloworld.submit_company_change %}
     <button type="button" class="btn btn-secondary rounded-pill mx-3 my-2 px-3" data-bs-toggle="modal" data-bs-target="#createModal">Create</button>
   {% endif %}
-  {% if perms.helloworld.add_company %}
+  {% if perms.helloworld.upload_company_data %}
     <button type="button" class="btn btn-secondary rounded-pill mx-3 my-2 px-3" data-bs-toggle="modal" data-bs-target="#importModal">Import</button>
   {% endif %}
   {% if perms.helloworld.view_company %}
@@ -77,7 +77,7 @@
         <th scope="col">Product Group</th>
         <th scope="col">Description</th>
         <th scope="col">Solution</th>
-        {%if user.is_staff %}
+        {%if perms.helloworld.submit_company_change %}
           <th scope="col">Actions</th>
         {% endif %}
       </tr>
@@ -94,7 +94,7 @@
           <td>{{ productgroup }}</td>
           <td>{{ company.Description|truncatechars:100 }}</td>
           <td>{{ solution }}</td>
-          {%if user.is_staff %}
+          {%if perms.helloworld.submit_company_change %}
             <td>
               <div style="display: flex; gap: 5px;">
                 <a href="{% url 'edit-company' company.id %}" class="btn btn-secondary">Edit</a>
