@@ -11,8 +11,10 @@ services:
 
   app:
     env_file: *production-env-file
+    # APP_PORT is the host address the load balancer reaches; the default
+    # keeps the app on loopback for a host-local proxy.
     ports:
-      - "127.0.0.1:8000:8000"
+      - "${APP_PORT:-127.0.0.1:8000}:8000"
     environment:
       SENTRY_ENVIRONMENT: "${SENTRY_ENVIRONMENT:-production}"
 

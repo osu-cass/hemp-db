@@ -51,6 +51,7 @@ class CronAudit(CronJobBase):
         recipients = list(dict.fromkeys(
             admin_emails + ([AUDIT_RECIPIENT] if AUDIT_RECIPIENT else [])
         ))
+        filedate = datetime.now().date()
 
         try:
             audit = Audit()

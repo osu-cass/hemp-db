@@ -45,10 +45,10 @@ canonical migration `0001_squashed_0017_pendingchanges_status`. It carries
   migrate --noinput` normally. The canonical migration is already recorded, so
   no schema or application-data changes run.
 * **Never use `--fake` or `--fake-initial` on `helloworld`.** Because
-  `initial = True` now covers all 17 migrations rather than just
-  `0001_initial`, faking makes Django skip the entire schema history while
-  still recording every row as applied. The skipped history includes
-  `Latitude`/`Longitude`, the `PendingChanges` foreign-key rework,
+  `initial = True` now represents the entire schema through the former `0017`,
+  rather than only `0001_initial`. Faking records the migration as applied
+  while skipping the entire schema history, including `Latitude`/`Longitude`,
+  the `PendingChanges` foreign-key rework,
   `Resources.priority`, `dateCreated`/`lastUpdated`, and
   `PendingChanges.status`. The resulting schema drift is permanent and later
   `migrate` runs will not detect it. This applies to restoring from a backup:

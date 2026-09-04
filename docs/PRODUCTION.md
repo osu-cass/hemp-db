@@ -41,7 +41,8 @@ chmod 600 .env
 Set these values in `.env`:
 
 - production: `PRODUCTION_URL` and the two secret paths;
-- staging: the same, with the staging hostname;
+- staging: the same, with the staging hostname and a non-empty
+  `MAILPIT_UI_AUTH`;
 - both environments: optional `SENTRY_DSN` and an optional `HEMPDB_IMAGE`
   override of the default branch tag.
 
@@ -98,7 +99,8 @@ chmod 400 docker/secrets/*
 ### Defaults and Optional Tuning
 
 Stable deployment values are kept out of the example files. The production
-overlay binds the app to loopback port `8000`; it and the shared base default
+overlay publishes the app on `APP_PORT` (default: loopback port `8000`; Chef
+sets a port in the app host's firewall range); it and the shared base default
 to `DEBUG=false`, verified database TLS, secure cookies, HTTPS proxy handling,
 HSTS settings, and an audit log directory at
 `/var/lib/hempdb/auditlogs`. Staging publishes the app and Mailpit UI on host
@@ -142,7 +144,11 @@ disabled. The app and Mailpit publish host ports set by `APP_PORT` and
 `MAILPIT_PORT` in `.env` (Chef sets `8094`/`8095`, inside the app host's
 firewall range for load balancer traffic; they default to `8001`/`8025`).
 The load balancer routes `https://hempdb-staging.cass.oregonstate.edu`
-to the app and its `/mailpit` path to the Mailpit UI.
+to the app and its `/mailpit` path to the Mailpit UI. That UI shows every
+message the app sends, including password resets. `MAILPIT_UI_AUTH` in `.env`
+is required and must hold `user:password` basic-auth credentials. Compose
+refuses to start when it is missing or empty. Chef supplies the value, which
+Compose passes to Mailpit as `MP_UI_AUTH`.
 
 ## Production
 
@@ -211,7 +217,7 @@ which owns everything outside this repository:
 - the secret files under `docker/secrets/`;
 - pulling published images and running `up --detach --wait` on chef-client
   runs when the image or configuration changes;
-- TLS termination and ingress through OSL-managed HAProxy (the app binds to
-  loopback only);
+- TLS termination and ingress through OSL-managed HAProxy, which reaches the
+  app on the `APP_PORT` Chef sets;
 - the cron schedule (host crontab running the command above);
 - the external MySQL cluster and its backups.
