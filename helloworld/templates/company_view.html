@@ -12,7 +12,10 @@
     <hr />
     {% if user.is_staff %}
       <a type="button" class="btn btn-secondary rounded-pill mx-3 my-2 px-3" href="{% url 'edit-company' company.id %}"> Edit </a>
-      <a type="button" class="btn btn-danger rounded-pill mx-3 my-2 px-3" href="/remove_companies/{{ company.id }}"> Delete </a>
+      <form method="post" action="{% url 'remove-company' company.id %}" class="d-inline">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-danger rounded-pill mx-3 my-2 px-3">Delete</button>
+      </form>
     {% endif %}
     <a type="button" class="btn btn-secondary rounded-pill mx-3 my-2 px-3" href="/companies"> Back </a>
     <table class="table table-striped table-sm">
