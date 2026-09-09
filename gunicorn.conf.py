@@ -17,3 +17,15 @@ control_socket_disable = True
 accesslog = "-"
 errorlog = "-"
 capture_output = True
+
+
+def worker_abort(worker):
+    """Log context before Gunicorn aborts a worker."""
+    worker.log.warning(
+        "Worker received SIGABRT, usually caused by a timeout "
+        "(pid: %s, timeout: %ss, worker: %s, requests: %s)",
+        worker.pid,
+        worker.cfg.timeout,
+        worker.__class__.__name__,
+        worker.nr,
+    )
