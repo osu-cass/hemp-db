@@ -63,7 +63,6 @@ from .permissions import (
     SUBMIT_COMPANY_CHANGE,
     UPLOAD_COMPANY_DATA,
     can_view_pending_change,
-    has_feature_permission,
     require_any_feature_permission,
     require_feature_permission,
     require_permission,
