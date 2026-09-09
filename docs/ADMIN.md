@@ -112,7 +112,7 @@ By clicking on resource object, the staff user can create, edit, delete any of t
 
 ### Resource Fields
 
-To view the fields of the `resource` model in a table, visit the [models page](MODELS.md/#resource-model). 
+To view the fields of the `resource` model in a table, visit the [models page](MODELS.md#resource-model).
 
 1. Resource Type
 
