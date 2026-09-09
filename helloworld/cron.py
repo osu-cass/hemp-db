@@ -37,7 +37,8 @@ class CronAudit(CronJobBase):
     code = 'helloworld.CronAudit'
 
     def do(self):
-        
+        """Run the database audit and email its result."""
+
         logger.info("Cron Audit Job Starting...")
         # Group IDs from admin authority group
         admin_groups = Group.objects.filter(name='Admin')
