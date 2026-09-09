@@ -84,17 +84,17 @@ Each of these attributes has 3 tables associated with it to keep track of the at
 
 ## `resource` Model
 
-This table holds all the resources that can be managed in the admin tools. For instructions on configuring resources (like home page articles and page text, visit the [admin documentation](ADMIN.md/#resources))
+This table holds all the resources that can be managed in the admin tools. For instructions on configuring resources, such as home page articles and page text, visit the [admin documentation](ADMIN.md#resources).
 
 | Column   | Description                                                                               |
 |----------|-------------------------------------------------------------------------------------------|
 | id       | Unique primary key int                                                                    |
-| type     | Type of resource (see [documentation](ADMIN.md/#resource-fields))                         |
+| type     | Type of resource (see [documentation](ADMIN.md#resource-fields))                          |
 | title    | Used for articles and the homepage title                                                  |
 | url      | Used for articles only (link to article)                                                  |
 | image    | Image URL (**not supported currently**)                                                   |
-| text     | Varies by resource type (see [documentation](ADMIN.md/#resource-fields))                  |
-| priority | Enables sorting of articles homepage (see [documentation](ADMIN.md/#resource-fields))     |
+| text     | Varies by resource type (see [documentation](ADMIN.md#resource-fields))                   |
+| priority | Enables sorting of articles homepage (see [documentation](ADMIN.md#resource-fields))      |
 
 ## Django Models
 
