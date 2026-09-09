@@ -3,14 +3,14 @@ This section will cover the implementation of the map and its dependencies. User
 
 The company map used to be an static ArcGIS map embedded within the HempDB page. Now the map shows active companies within the `company` table using their latitude and longitude fields.
 
-The map in its current state was implemented in these PRs if you'd like to see the code: [#171](https://github.com/cmciosu/hemp-db/pull/171), [#179](https://github.com/cmciosu/hemp-db/pull/179).
+The map in its current state was implemented in these PRs if you'd like to see the code: [#171](https://github.com/osu-cass/hemp-db/pull/171), [#179](https://github.com/osu-cass/hemp-db/pull/179).
 
 ## Libraries and APIs
 The map and markers are displayed using [LeafletJS](https://leafletjs.com/), and the heatmap functionality uses [Leaflet.markercluster](https://github.com/Leaflet/Leaflet.markercluster).
 
 Latitudes and longitudes (and other information) of each company are gathered in the `map()` view and sent to the `map.html` template using the [`json_script` template tag](https://docs.djangoproject.com/en/5.1/ref/templates/builtins/#json-script). From there, rendering is done on the frontend using JavaScript by parsing the company data in the `<script>` tag.
 
-To obtain the latitude and longitude of each company, we use the [Geocoder](https://github.com/DenisCarriere/geocoder) Python library. This acts as a wrapper around the [ArcGIS Geocoding API](https://developers.arcgis.com/rest/geocode/). See the [`geocode_location()` helper function](https://github.com/cmciosu/hemp-db/blob/2a06a99f6197d446936034fff9cee24b88b8b093/helloworld/views.py#L1468) in `views.py` to see how this is done in detail.
+To obtain the latitude and longitude of each company, we use the [Geocoder](https://github.com/DenisCarriere/geocoder) Python library. This acts as a wrapper around the [ArcGIS Geocoding API](https://developers.arcgis.com/rest/geocode/). See the [`geocode_location()` helper function](https://github.com/osu-cass/hemp-db/blob/2a06a99f6197d446936034fff9cee24b88b8b093/helloworld/views.py#L1468) in `views.py` to see how this is done in detail.
 
 ## Latitude and Longitude
 Since we can't query all 5,000+ company latitudes/longitudes each time someone visits the map, we store them in the database. Prior to this, each company just had a country (required), and an address (optional). We now obtain the company's latitude and longitude from these avaiable attributes.
