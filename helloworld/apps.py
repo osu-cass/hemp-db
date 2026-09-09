@@ -1,5 +1,5 @@
 from django.apps import AppConfig
-from importlib import import_module
+from django.db.models.signals import m2m_changed
 
 class HelloworldConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
@@ -8,6 +8,6 @@ class HelloworldConfig(AppConfig):
 
     # Runs on startup
     def ready(self):
-        """Load signal handlers and cron registration at startup."""
-        import_module("helloworld.signals")
-        import_module("helloworld.cron")
+        import helloworld.signals   # Connect the signal handlers defined in signals.py
+        m2m_changed.connect(helloworld.signals.update_is_staff_on_group_change) # Explicitly connect (Satisfies ruff check)
+        import helloworld.cron

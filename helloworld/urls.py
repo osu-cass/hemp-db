@@ -17,7 +17,6 @@ urlpatterns = [
     # File Upload
     path("upload/", views.upload_file, name="upload"),
     path("upload_wizard", views.upload_wizard, name="upload-wizard"),
-    path("upload_wizard/<uuid:batch_id>", views.upload_batch_detail, name="upload-batch"),
     
     # Hemp Map
     path("map/", views.map),

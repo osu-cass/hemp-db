@@ -63,20 +63,36 @@ def require_feature_permission(permission):
     return decorator
 
 
+def require_any_feature_permission(*permissions):
+    """Require at least one of the named feature permissions."""
+
+    def decorator(view):
+        """Wrap a view with feature-permission enforcement."""
+
+        @wraps(view)
+        def wrapped(request, *args, **kwargs):
+            """Enforce feature access before calling the view."""
+            if not request.user.is_authenticated:
+                from django.contrib.auth.views import redirect_to_login
+                return redirect_to_login(
+                    request.get_full_path(), resolve_url(settings.LOGIN_URL)
+                )
+            if not any(
+                has_feature_permission(request.user, permission)
+                for permission in permissions
+            ):
+                raise PermissionDenied
+            return view(request, *args, **kwargs)
+        return wrapped
+    return decorator
+
+
 def can_view_pending_change(user, change):
     """Return whether the user may inspect a pending-change record."""
     return user.is_authenticated and (
         change.author_id == user.pk
         or has_feature_permission(user, REVIEW_PENDING_CHANGE)
     )
-
-
-def effective_feature_permissions(user):
-    """Return the effective feature permissions for a user."""
-    return {
-        permission: has_feature_permission(user, permission)
-        for permission in FEATURE_PERMISSIONS
-    }
 
 
 def users_with_feature_permission(permission):

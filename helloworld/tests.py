@@ -357,6 +357,7 @@ class CompanyEditTestCase(TestCase):
         self.assertEqual(pending_change.changeType, "edit")
         self.assertEqual(pending_change.author, self.user)
         self.assertEqual(pending_company.Name, "Edited company")
+        self.assertIsNone(pending_company.import_batch_id)
 
         self.company.refresh_from_db()
         self.assertEqual(self.company.Name, "Original company")

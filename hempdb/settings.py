@@ -234,12 +234,11 @@ DATABASES['default']['CONN_HEALTH_CHECKS'] = env_bool(
     'DATABASE_CONN_HEALTH_CHECKS', True
 )
 database_options = DATABASES['default'].setdefault('OPTIONS', {})
-if 'mysql' in DATABASES['default']['ENGINE']:
-    database_options['charset'] = 'utf8mb4'
-    database_options.pop('sslmode', None)
-    if DATABASE_SSL:
-        database_ca_path = os.getenv('MYSQL_ATTR_SSL_CA', '').strip()
-        database_options['ssl'] = database_ssl_options(database_ca_path)
+database_options['charset'] = 'utf8mb4'
+database_options.pop('sslmode', None)
+if DATABASE_SSL:
+    database_ca_path = os.getenv('MYSQL_ATTR_SSL_CA', '').strip()
+    database_options['ssl'] = database_ssl_options(database_ca_path)
 
 
 # Password validation
