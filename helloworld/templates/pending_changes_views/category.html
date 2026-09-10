@@ -1,0 +1,37 @@
+<div class="accordion-item">
+  <h2 class="accordion-header" id="heading-{{ category }}">
+    <button
+      class="accordion-button collapsed"
+      type="button"
+      data-bs-toggle="collapse"
+      data-bs-target="#collapse-{{ category }}"
+      aria-expanded="false"
+      aria-controls="collapse-{{ category }}"
+    >
+      {{ label }} ({{ count }})
+    </button>
+  </h2>
+  <div
+    id="collapse-{{ category }}"
+    class="accordion-collapse collapse"
+    aria-labelledby="heading-{{ category }}"
+    data-bs-parent="#pendingChangesAccordion"
+  >
+    <div class="accordion-body">
+      <div
+        data-pending-loader
+        data-next-url="{% url 'pending-change-companies' category %}"
+        data-loading-message="Loading companies..."
+        data-empty-message="No changes available."
+      >
+        <div data-pending-items></div>
+        <p class="text-center mb-2" data-pending-status aria-live="polite"></p>
+        <div class="text-center">
+          <button class="btn btn-outline-secondary" type="button" data-pending-load>
+            Load more
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
