@@ -41,6 +41,13 @@ from .upload import (
 )
 from .notifications import email_admins, email_upload_reviewers
 from .authentication import activate_email
+from .pending_changes import (
+    InvalidCursor,
+    get_category_counts,
+    get_change_page,
+    get_company_page,
+    get_upload_batches,
+)
 from django.shortcuts import render, redirect
 from django.contrib.auth import login, get_user_model
 from django.contrib.auth.decorators import login_required
@@ -49,8 +56,9 @@ from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.contenttypes.models import ContentType
 from django.forms.models import model_to_dict
 from django.contrib import messages
-from django.http import HttpResponse, HttpRequest
-from django.views.decorators.http import require_POST
+from django.http import HttpResponse, HttpRequest, HttpResponseBadRequest
+from django.views.decorators.http import require_GET, require_POST
+from django.urls import reverse
 from django.utils.http import urlsafe_base64_decode
 from django.utils.encoding import force_str
 from django.contrib.auth.tokens import default_token_generator
@@ -70,6 +78,7 @@ from .permissions import (
 import csv
 import geocoder
 import logging
+from urllib.parse import urlencode
 from decimal import Decimal
 from copy import deepcopy
 
@@ -998,70 +1007,75 @@ def export_industry(_request: HttpRequest) -> HttpResponse:
 
 @require_any_application_permission(EDIT_COMPANIES, REVIEW_COMPANY_CHANGES)
 def dbChanges(request: HttpRequest) -> HttpResponse:
-    """Show all pending company changes to editors and reviewers."""
-    
-    # Edit Changes (linked to a Company object)
-    edit_changes = (
-        Company.objects.prefetch_related("pendingchanges_set__pending_company")
-        .filter(pendingchanges__changeType="edit",
-                pendingchanges__status=PendingChanges.PendingStatus.PENDING)
-        .distinct()
-    )
-    edit_changes_dict = {
-        company: list(company.pendingchanges_set.filter(changeType="edit").order_by("-created_at"))
-        for company in edit_changes
-    }
+    """Render pending-change category counts without loading change rows."""
+    category_counts = get_category_counts()
 
-    # Create Changes (linked to a Pending Company object)
-    create_changes = (
-        PendingChanges.objects.filter(changeType="create",
-                                      status=PendingChanges.PendingStatus.PENDING,)
-        .select_related("pending_company")
-        .order_by("-created_at")
-    )
-    create_changes_dict = {}
-    for change in create_changes:
-        company = change.pending_company
-        if company not in create_changes_dict:
-            create_changes_dict[company] = []
-        create_changes_dict[company].append(change)
-
-    # Delete Changes (linked to a Company object)
-    delete_changes = (
-        Company.objects.prefetch_related("pendingchanges_set")
-        .filter(pendingchanges__changeType="deletion",
-                pendingchanges__status=PendingChanges.PendingStatus.PENDING,)
-        .distinct()
-    )
-    delete_changes_dict = {
-        company: list(company.pendingchanges_set.filter(changeType="deletion").order_by("-created_at"))
-        for company in delete_changes
-    }
-
-    # Upload batches still awaiting review
-    upload_batches = (
-        PendingChanges.objects.filter(
-            changeType="create",
-            status=PendingChanges.PendingStatus.PENDING,
-            upload_batch__isnull=False,
-        )
-        .values("upload_batch", "author__username")
-        .annotate(company_count=models.Count("pk"), submitted_at=models.Min("created_at"))
-        .order_by("-submitted_at")
-    )
-
-    # Prepare context with all three categories
-    changes_list = {
-        "edit_changes": edit_changes_dict,
-        "create_changes": create_changes_dict,
-        "delete_changes": delete_changes_dict,
-    }
-    
     return render(
         request,
-        'companies_pending.html',
-        {'changes_list': changes_list, 'upload_batches': upload_batches},
+        "companies_pending.html",
+        {
+            "category_counts": category_counts,
+            "has_pending_changes": any(category_counts.values()),
+            "upload_batches": get_upload_batches(),
+        },
     )
+
+
+@require_any_application_permission(EDIT_COMPANIES, REVIEW_COMPANY_CHANGES)
+@require_GET
+def pending_change_companies(
+    request: HttpRequest, category: str
+) -> HttpResponse:
+    """Render one page of company summaries for a pending category."""
+    try:
+        page = get_company_page(category, request.GET.get("cursor"))
+    except (InvalidCursor, ValueError):
+        return HttpResponseBadRequest("Invalid pending-change request.")
+
+    next_url = _pending_page_url(
+        "pending-change-companies",
+        [category],
+        page.next_cursor,
+    )
+    return render(
+        request,
+        "pending_changes_views/company_summaries.html",
+        {
+            "category": category,
+            "summaries": page.items,
+            "next_url": next_url,
+        },
+    )
+
+
+@require_any_application_permission(EDIT_COMPANIES, REVIEW_COMPANY_CHANGES)
+@require_GET
+def pending_company_changes(
+    request: HttpRequest, category: str, company_id: int
+) -> HttpResponse:
+    """Render one page of pending rows for a company."""
+    try:
+        page = get_change_page(category, company_id, request.GET.get("cursor"))
+    except (InvalidCursor, ValueError):
+        return HttpResponseBadRequest("Invalid pending-change request.")
+
+    next_url = _pending_page_url(
+        "pending-company-changes",
+        [category, company_id],
+        page.next_cursor,
+    )
+    return render(
+        request,
+        "pending_changes_views/change_rows.html",
+        {"changes": page.items, "next_url": next_url},
+    )
+
+
+def _pending_page_url(name: str, args: list, cursor: str | None) -> str:
+    """Build the next fragment URL when another page exists."""
+    if cursor is None:
+        return ""
+    return f"{reverse(name, args=args)}?{urlencode({'cursor': cursor})}"
 
 @require_application_permission(REVIEW_COMPANY_CHANGES)
 @require_POST
@@ -1080,7 +1094,7 @@ def upload_batch_reject(_request: HttpRequest, batch) -> HttpResponse:
 @require_application_permission(EDIT_COMPANIES)
 def myChanges(request: HttpRequest) -> HttpResponse:
     """Show only the current editor's company submissions."""
-    changes = PendingChanges.objects.filter(author=request.user)
+    changes = PendingChanges.objects.filter(author=request.user).select_related("author")
     return render(request, 'my_changes.html', {'changes': changes})
 
 def map(request: HttpRequest) -> HttpResponse:

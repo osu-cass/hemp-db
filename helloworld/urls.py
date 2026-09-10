@@ -88,5 +88,15 @@ urlpatterns = [
     path('changes/', views.dbChanges, name='changes'),
     path('changes/upload/<uuid:batch>/approve', views.upload_batch_approve, name='upload-batch-approve'),
     path('changes/upload/<uuid:batch>/reject', views.upload_batch_reject, name='upload-batch-reject'),
+    path(
+        'changes/<str:category>/companies/',
+        views.pending_change_companies,
+        name='pending-change-companies',
+    ),
+    path(
+        'changes/<str:category>/companies/<int:company_id>/',
+        views.pending_company_changes,
+        name='pending-company-changes',
+    ),
     path('my_changes/', views.myChanges, name='my_changes'),
 ]

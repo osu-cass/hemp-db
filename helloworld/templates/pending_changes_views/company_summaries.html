@@ -1,0 +1,62 @@
+<template data-pending-items>
+  <div data-pending-fragment-items>
+    {% for summary in summaries %}
+      <div
+        class="accordion mb-3"
+        id="{{ category }}{{ summary.company_id }}ChangesAccordion"
+        data-pending-key="{{ category }}-{{ summary.company_id }}"
+      >
+        <div class="accordion-item">
+          <h2 class="accordion-header" id="heading-{{ category }}{{ summary.company_id }}">
+            <button
+              class="accordion-button collapsed"
+              type="button"
+              data-bs-toggle="collapse"
+              data-bs-target="#collapse-{{ category }}{{ summary.company_id }}"
+              aria-expanded="false"
+              aria-controls="collapse-{{ category }}{{ summary.company_id }}"
+            >
+              {{ summary.company_name }} ({{ summary.pending_count }})
+            </button>
+          </h2>
+          <div
+            id="collapse-{{ category }}{{ summary.company_id }}"
+            class="accordion-collapse collapse"
+            aria-labelledby="heading-{{ category }}{{ summary.company_id }}"
+            data-bs-parent="#{{ category }}{{ summary.company_id }}ChangesAccordion"
+          >
+            <div class="accordion-body">
+              <div
+                data-pending-loader
+                data-next-url="{% url 'pending-company-changes' category summary.company_id %}"
+                data-loading-message="Loading changes..."
+                data-empty-message="No changes for this company."
+              >
+                <div class="table-responsive">
+                  <table class="table table-bordered table-hover">
+                    <thead class="table-light">
+                      <tr>
+                        <th scope="col">Change ID</th>
+                        <th scope="col">Type</th>
+                        <th scope="col">Author</th>
+                        <th scope="col">Timestamp</th>
+                      </tr>
+                    </thead>
+                    <tbody data-pending-items></tbody>
+                  </table>
+                </div>
+                <p class="text-center mb-2" data-pending-status aria-live="polite"></p>
+                <div class="text-center">
+                  <button class="btn btn-outline-secondary" type="button" data-pending-load>
+                    Load more
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</template>
+<div data-pending-page data-next-url="{{ next_url }}"></div>
