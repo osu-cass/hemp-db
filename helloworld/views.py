@@ -42,21 +42,29 @@ from .authentication import activate_email
 from django.shortcuts import render, redirect
 from django.contrib.auth import login, get_user_model
 from django.contrib.auth.decorators import login_required
-from django.contrib.auth.decorators import permission_required
 from django.contrib.auth.models import Permission
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.contenttypes.models import ContentType
 from django.forms.models import model_to_dict
 from django.contrib import messages
 from django.http import HttpResponse, HttpRequest
-from django.core.exceptions import PermissionDenied
 from django.views.decorators.http import require_POST
 from django.utils.http import urlsafe_base64_decode
 from django.utils.encoding import force_str
 from django.contrib.auth.tokens import default_token_generator
 from django.core.cache import cache
+from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.conf import settings
+from .permissions import (
+    EDIT_COMPANIES,
+    EDIT_METADATA,
+    REVIEW_COMPANY_CHANGES,
+    can_view_pending_change,
+    require_any_application_permission,
+    require_application_permission,
+    require_post_permission,
+)
 
 import csv
 import geocoder
@@ -72,31 +80,9 @@ logger = logging.getLogger(__name__)
 UPLOAD_WIZARD_PAGE_SIZE = 100
 
 
-def _require_permission(request: HttpRequest, permission: str) -> None:
-    """Raise HTTP 403 unless the current user has the named app permission."""
-    if not request.user.has_perm(f"helloworld.{permission}"):
-        raise PermissionDenied
-
-
-def _require_view_or_add_permission(
-    request: HttpRequest, add_permission: str, view_permission: str
-) -> None:
-    """Require the add permission for POSTs and view permission otherwise."""
-    permission = add_permission if request.method == "POST" else view_permission
-    _require_permission(request, permission)
-
-@staff_member_required
+@require_application_permission(EDIT_COMPANIES)
 def upload_wizard(request: HttpRequest) -> HttpResponse:
-    """
-    Staff Route. Presents the user with all uploaded companies, indicating duplicates, and more.
-    Once approved, companies will be uploaded to Companies
-
-    Parameters:
-    request (HttpRequest): incoming HTTP request
-
-    Returns:
-    response (HttpResponse): HTTP response redirecting to companies page table
-    """
+    """Review, finish, or cancel a staged company upload."""
     index = UploadIndex.objects.values_list("pendingID", flat=True)
     companies = PendingCompany.objects.filter(pk__in=index).order_by("pk")
     message = ""
@@ -128,18 +114,10 @@ def upload_wizard(request: HttpRequest) -> HttpResponse:
 
     return render(request, "upload_wizard.html", {"data": page})
 
-@staff_member_required
+@require_application_permission(EDIT_COMPANIES)
+@require_POST
 def upload_file(request: HttpRequest) -> HttpResponse:
-    """
-    Staff route. Should only be used in emergencies (not secure). 
-    Uses pandas to parse uploaded file, saves company data straight to Companies table
-
-    Parameters:
-    request (HttpRequest): incoming HTTP request containing file
-
-    Returns:
-    response (HttpResponse): HTTP response redirecting to companies page template
-    """
+    """Validate and stage a company-upload file."""
     if request.method == "POST":
         form = UploadFileForm(request.POST, request.FILES)
         if form.is_valid():
@@ -277,22 +255,9 @@ def register(request: HttpRequest) -> HttpResponse:
     return render(request, 'registration/register.html', {'form': form})
 
 @login_required
+@require_post_permission(EDIT_COMPANIES)
 def companies(request: HttpRequest) -> HttpResponse:
-    """
-    Protected Route. Renders Company data for page specified in URL params
-    on POST request, saves form data to PendingCompany, creates PendingChange object with 'create' type
-    on GET request, renders SearchForm, PendingCompanyForm, companies template
-    We pre-fetch all the m2m tables, which results in one big query being run, rather than hundreds of small ones
-    After prefetch_related, all company.___.all() queries don't hit the db, resulting in near instant response time
-
-    Parameters:
-    request (HttpRequest): incoming HTTP request
-
-    Returns:
-    response (HttpResponse): HTTP response containing companies page template, PendingCompanyForm, SearchForm
-    """
-    _require_view_or_add_permission(request, 'add_pendingcompany', 'view_company')
-
+    """List companies and accept permitted company submissions."""
     try:
         page = int(request.GET.get('page', 1))
         page = page if abs(page) < len(PAGE_INDEX)+1 else 1
@@ -351,20 +316,9 @@ def companies(request: HttpRequest) -> HttpResponse:
                                               'filterSolutionForm': filterSolutionForm
                                               })
 
-@staff_member_required
+@require_application_permission(EDIT_COMPANIES)
 def edit_company(request: HttpRequest, id: int) -> HttpResponse:
-    """
-    Protected Route. Handles edit action for Companies
-    for POST requests, saves form data as PendingCompany, creates PendingChange with type 'edit'
-    for GET requests, returns edit form, company data, edit_companies template
-
-    Parameters:
-    request (HttpRequest): incoming HTTP request
-    id (int): id of company to be edited
-
-    Returns:
-    response (HttpResponse): HTTP response containing company editpage template and PendingCompanyForm
-    """
+    """Display or submit a proposed company edit."""
 
     company = Company.objects.get(id = id)
     original_company = deepcopy(company) # Deep copy original data for location comparison
@@ -442,16 +396,7 @@ def check_if_location_edited(company: Company, new_company: PendingCompany) -> b
 
 @login_required
 def view_company(request: HttpRequest, id: int) -> HttpResponse:
-    """
-    Protected Route. Shows all column values for a single company
-
-    Parameters:
-    request (HttpRequest): incoming HTTP request
-    id (int): id of company being viewed
-
-    Returns:
-    response (HttpResponse): HTTP response containing company view page template and company data as dict
-    """
+    """Show a company to a signed-in user."""
     company = Company.objects.select_related('Industry', 'Status', 'Grower').get(id = id)
     obj = model_to_dict(company)
     # Manually add FK values
@@ -461,19 +406,9 @@ def view_company(request: HttpRequest, id: int) -> HttpResponse:
 
     return render(request, 'company_view.html', {'company': company, 'obj': obj})
 
-@login_required
+@require_any_application_permission(EDIT_COMPANIES, REVIEW_COMPANY_CHANGES)
 def view_company_pending(request: HttpRequest, id: int) -> HttpResponse:
-    """
-    Staff Route. Shows all column values for a single pending company, 
-    as well as its change type
-
-    Parameters:
-    request (HttpRequest): incoming HTTP request
-    id (int): id of change being viewed
-
-    Returns:
-    response (HttpResponse): HTTP response containing company view page template and company data as dict
-    """
+    """Show a pending change to its editor or a reviewer."""
     # Creates context for viewing details of a pending company object
     # Different change types require different context to be generated.
     # For example, edit change types need both the company and pending company details to be able
@@ -482,11 +417,8 @@ def view_company_pending(request: HttpRequest, id: int) -> HttpResponse:
     fields = []
 
     obj = PendingChanges.objects.get(id=id)
-    
-    # Redirect if user is not the author of the change and the user isn't staff
-    # - Prevents people from manually typing in change IDs in the URL, but also lets staff see any ID
-    if (request.user != obj.author) and not request.user.is_staff:
-        return redirect('index')
+    if not can_view_pending_change(request.user, obj):
+        raise PermissionDenied
     
     if(obj.changeType == "edit"):
         company = obj.company
@@ -569,23 +501,10 @@ def view_company_pending(request: HttpRequest, id: int) -> HttpResponse:
 
     return render(request, 'company_view_pending.html', {'context': context, 'change': obj})
 
-@staff_member_required
+@require_application_permission(REVIEW_COMPANY_CHANGES)
 @require_POST
 def view_company_approve(_request: HttpRequest, id: int) -> HttpResponse:
-    """
-    Staff Route. Handles approval of a PendingChange for companies
-    if changeType is deletion, company is deleted from PendingCompanies
-    if changeType is create, company is copied from PendingCompanies into Companies table
-    if changeType is edit, company in Companies table is edited with all values from PendingCompany
-    PendingChange and PendingCompany records are deleted (cleanup)
-
-    Parameters:
-    request (HttpRequest): incoming HTTP request (unused)
-    id (int): id of pending change
-
-    Returns:
-    response (HttpResponse): HTTP response redirecting to /companies view
-    """
+    """Approve and apply a pending company change."""
     change = PendingChanges.objects.get(id=id)
     if change.changeType == 'deletion':
         
@@ -627,19 +546,10 @@ def view_company_approve(_request: HttpRequest, id: int) -> HttpResponse:
 
     return redirect('/changes')
 
-@staff_member_required
+@require_application_permission(REVIEW_COMPANY_CHANGES)
 @require_POST
 def view_company_reject(_request: HttpRequest, id: int) -> HttpResponse:
-    """
-    Staff Route. Triggered when admin clicks "Reject" in company_view_pending
-
-    Parameters:
-    request (HttpRequest): incoming HTTP request
-    id (int): id of pending change
-
-    Returns:
-    response (HttpResponse): HTTP response redirecting to PendingChanges view
-    """
+    """Reject a pending company change."""
     change = PendingChanges.objects.get(id=id)
 
     change.status = PendingChanges.PendingStatus.REJECTED
@@ -649,18 +559,7 @@ def view_company_reject(_request: HttpRequest, id: int) -> HttpResponse:
 
 @login_required
 def companies_filtered(request: HttpRequest) -> HttpResponse:
-    """
-    Protected Route. Basically does the same thing as the /companies route, except 
-    filters queryset based on SearchForm / Filter input.
-
-    Parameters:
-    request (HttpRequest): incoming HTTP request
-
-    Returns:
-    response (HttpResponse): HTTP response containing company page template and filtered company data
-    """
-    _require_permission(request, "view_company")
-
+    """Show signed-in users a filtered company listing."""
     query = None
     companies = Company.objects.select_related('Industry', 'Status').prefetch_related('Solutions', 'Category', 'stakeholderGroup', 'productGroup', 'Stage')
 
@@ -736,19 +635,10 @@ def companies_filtered(request: HttpRequest) -> HttpResponse:
                                               'filterSolutionForm': filterSolutionForm
                                               })
 
-@staff_member_required
+@require_application_permission(EDIT_COMPANIES)
 @require_POST
 def remove_companies(request: HttpRequest, id: int) -> HttpResponse:
-    """
-    Staff Route. Adds deletion to PendingChanges
-
-    Parameters:
-    request (HttpRequest): incoming HTTP request
-    id (int): id of company to be deleted
-
-    Returns:
-    response (HttpResponse): HTTP response redirecting to /companies
-    """
+    """Submit a proposed company deletion."""
     companyToDelete = Company.objects.get(id=id)
     pending_change = PendingChanges.objects.create(company=companyToDelete, changeType='deletion', author=request.user)
 
@@ -757,17 +647,9 @@ def remove_companies(request: HttpRequest, id: int) -> HttpResponse:
 
     return redirect('/companies')
 
-@permission_required("helloworld.view_company")
+@login_required
 def export_companies(request: HttpRequest) -> HttpResponse:
-    """
-    Staff Route. Exports all data or filtered data from Company table
-
-    Parameters:
-    request (HttpRequest): incoming HTTP request
-
-    Returns:
-    response (HttpResponse): HTTP response containing all or filtered company data in csv
-    """
+    """Export company data for a signed-in user."""
     response = HttpResponse(content_type='text/csv')
     response['Content-Disposition'] = 'attachment; filename="companies.csv"'
 
@@ -809,19 +691,10 @@ def export_companies(request: HttpRequest) -> HttpResponse:
 
     return response
 
+@login_required
+@require_post_permission(EDIT_METADATA)
 def categories(request: HttpRequest) -> HttpResponse:
-    """
-    Protected Route. Shows all categories from Category table
-    for POST requests, saves form data to Category table
-
-    Parameters:
-    request (HttpRequest): incoming HTTP request
-
-    Returns:
-    response (HttpResponse): HTTP response containing category data
-    """
-    _require_view_or_add_permission(request, 'add_category', 'view_category')
-
+    """List categories and accept permitted category creation."""
     categories = Category.objects.all()
     if request.method == 'POST':
         form = CategoryForm(request.POST)
@@ -833,34 +706,17 @@ def categories(request: HttpRequest) -> HttpResponse:
 
     return render(request, 'categories.html', {'form': form, 'data': categories, 'type': 'category', 'delete_url': 'remove_categories'})
 
-@staff_member_required
+@require_application_permission(EDIT_METADATA)
 @require_POST
 def remove_categories(_request: HttpRequest, id: int) -> HttpResponse:
-    """
-    Staff Route. Removes a category
-
-    Parameters:
-    request (HttpRequest): incoming HTTP request (unused)
-    id (int): id of category to be deleted 
-
-    Returns:
-    response (HttpResponse): HTTP response redirecting to categories view
-    """
+    """Delete a category for a metadata editor."""
     category = Category.objects.get(id = id)
     category.delete()
     return redirect('/categories')
 
-@permission_required("helloworld.view_category")
+@login_required
 def export_categories(_request: HttpRequest) -> HttpResponse:
-    """
-    Staff Route. Exports all entries in Category table to csv
-
-    Parameters:
-    request (HttpRequest): incoming HTTP request
-
-    Returns:
-    response (HttpResponse): HTTP response containing category data in csv
-    """
+    """Export categories for a signed-in user."""
     response = HttpResponse(content_type='text/csv')
     response['Content-Disposition'] = 'attachment; filename="categories.csv"'
 
@@ -873,19 +729,10 @@ def export_categories(_request: HttpRequest) -> HttpResponse:
 
     return response
 
+@login_required
+@require_post_permission(EDIT_METADATA)
 def solutions(request: HttpRequest) -> HttpResponse:
-    """
-    Protected Route. Shows all solutions from Solution table
-    for POST requests, saves form data to Solution table
-
-    Parameters:
-    request (HttpRequest): incoming HTTP request
-
-    Returns:
-    response (HttpResponse): HTTP response containing solution data
-    """
-    _require_view_or_add_permission(request, 'add_solution', 'view_solution')
-
+    """List solutions and accept permitted solution creation."""
     solutions = Solution.objects.all()
     if request.method == 'POST':
         form = SolutionForm(request.POST)
@@ -897,34 +744,17 @@ def solutions(request: HttpRequest) -> HttpResponse:
 
     return render(request, 'solutions.html', {'form': form, 'data': solutions, 'type': 'solution', 'delete_url': 'remove_solutions'})
 
-@staff_member_required
+@require_application_permission(EDIT_METADATA)
 @require_POST
 def remove_solutions(_request: HttpRequest, id: int):
-    """
-    Staff Route. Removes a solution
-
-    Parameters:
-    request (HttpRequest): incoming HTTP request (unused)
-    id (int): id of solution to be deleted 
-
-    Returns:
-    response (HttpResponse): HTTP response redirecting to solution view
-    """
+    """Delete a solution for a metadata editor."""
     solution = Solution.objects.get(id = id)
     solution.delete()
     return redirect('/solutions')
 
-@permission_required("helloworld.view_solution")
+@login_required
 def export_solutions(_request: HttpRequest) -> HttpResponse:
-    """
-    Staff Route. Exports all entries in Solutions table to csv
-
-    Parameters:
-    request (HttpRequest): incoming HTTP request
-
-    Returns:
-    response (HttpResponse): HTTP response containing solution data in csv
-    """
+    """Export solutions for a signed-in user."""
     response = HttpResponse(content_type='text/csv')
     response['Content-Disposition'] = 'attachment; filename="solutions.csv"'
 
@@ -937,21 +767,10 @@ def export_solutions(_request: HttpRequest) -> HttpResponse:
 
     return response
 
+@login_required
+@require_post_permission(EDIT_METADATA)
 def StakeholderGroups(request: HttpRequest) -> HttpResponse:
-    """
-    Protected Route. Shows all entries from stakeholderGroups table
-    for POST requests, saves form data to stakeholderGroups table
-
-    Parameters:
-    request (HttpRequest): incoming HTTP request
-
-    Returns:
-    response (HttpResponse): HTTP response containing stakeholderGroups data
-    """
-    _require_view_or_add_permission(
-        request, 'add_stakeholdergroups', 'view_stakeholdergroups'
-    )
-
+    """List stakeholder groups and accept permitted creation."""
     groups = stakeholderGroups.objects.all()
     if request.method == 'POST':
         form = stakeholderGroupsForm(request.POST)
@@ -963,34 +782,17 @@ def StakeholderGroups(request: HttpRequest) -> HttpResponse:
 
     return render(request, 'stakeholderGroups.html', {'form': form, 'type': 'stakeholderGroup', 'data': groups, 'delete_url': 'remove_stakeholder_groups' })
 
-@staff_member_required
+@require_application_permission(EDIT_METADATA)
 @require_POST
 def remove_stakeholder_groups(_request: HttpRequest, id: int) -> HttpResponse:
-    """
-    Staff Route. Removes a stakeholderGroups
-
-    Parameters:
-    request (HttpRequest): incoming HTTP request (unused)
-    id (int): id of stakeholderGroups to be deleted 
-
-    Returns:
-    response (HttpResponse): HTTP response redirecting to stakeholderGroups view
-    """
+    """Delete a stakeholder group for a metadata editor."""
     group = stakeholderGroups.objects.get(id = id)
     group.delete()
     return redirect('/stakeholder-groups')
 
-@permission_required("helloworld.view_stakeholdergroups")
+@login_required
 def export_stakeholder_groups(_request: HttpRequest) -> HttpResponse:
-    """
-    Staff Route. Exports all entries in stakeholderGroups table to csv
-
-    Parameters:
-    request (HttpRequest): incoming HTTP request
-
-    Returns:
-    response (HttpResponse): HTTP response containing stakeholderGroups data in csv
-    """
+    """Export stakeholder groups for a signed-in user."""
     response = HttpResponse(content_type='text/csv')
     response['Content-Disposition'] = 'attachment; filename="stakeholder_groups.csv"'
 
@@ -1003,19 +805,10 @@ def export_stakeholder_groups(_request: HttpRequest) -> HttpResponse:
 
     return response
 
+@login_required
+@require_post_permission(EDIT_METADATA)
 def stages(request: HttpRequest) -> HttpResponse:
-    """
-    Protected Route. Shows all entries from Stage table
-    for POST requests, saves form data to Stage table
-
-    Parameters:
-    request (HttpRequest): incoming HTTP request
-
-    Returns:
-    response (HttpResponse): HTTP response containing Stage data
-    """
-    _require_view_or_add_permission(request, 'add_stage', 'view_stage')
-
+    """List stages and accept permitted stage creation."""
     stages = Stage.objects.all()
     if request.method == 'POST':
         form = StageForm(request.POST)
@@ -1027,34 +820,17 @@ def stages(request: HttpRequest) -> HttpResponse:
 
     return render(request, 'stages.html', {'form': form, 'data': stages, 'type': 'stage', 'delete_url': 'remove_stages'})
 
-@staff_member_required
+@require_application_permission(EDIT_METADATA)
 @require_POST
 def remove_stages(_request: HttpRequest, id: int) -> HttpResponse:
-    """
-    Staff Route. Removes a Stage
-
-    Parameters:
-    request (HttpRequest): incoming HTTP request (unused)
-    id (int): id of Stage to be deleted 
-
-    Returns:
-    response (HttpResponse): HTTP response redirecting to Stage view
-    """
+    """Delete a stage for a metadata editor."""
     stage = Stage.objects.get(id = id)
     stage.delete()
     return redirect('/stages')
 
-@permission_required("helloworld.view_stage")
+@login_required
 def export_stages(_request: HttpRequest) -> HttpResponse:
-    """
-    Staff Route. Exports all entries in Stage table to csv
-
-    Parameters:
-    request (HttpRequest): incoming HTTP request
-
-    Returns:
-    response (HttpResponse): HTTP response containing Stage data in csv
-    """
+    """Export stages for a signed-in user."""
     response = HttpResponse(content_type='text/csv')
     response['Content-Disposition'] = 'attachment; filename="stages.csv"'
 
@@ -1067,21 +843,10 @@ def export_stages(_request: HttpRequest) -> HttpResponse:
 
     return response
 
+@login_required
+@require_post_permission(EDIT_METADATA)
 def productGroups(request: HttpRequest) -> HttpResponse:
-    """
-    Protected Route. Shows all entries from productGroup table
-    for POST requests, saves form data to productGroup table
-
-    Parameters:
-    request (HttpRequest): incoming HTTP request
-
-    Returns:
-    response (HttpResponse): HTTP response containing productGroup data
-    """
-    _require_view_or_add_permission(
-        request, 'add_productgroup', 'view_productgroup'
-    )
-
+    """List product groups and accept permitted creation."""
     groups = ProductGroup.objects.all()
     if request.method == 'POST':
         form = ProductGroupForm(request.POST)
@@ -1093,34 +858,17 @@ def productGroups(request: HttpRequest) -> HttpResponse:
 
     return render(request, 'productGroups.html', {'form': form, 'data': groups, 'type': 'productGroups', 'delete_url': 'remove_product_group'})
 
-@staff_member_required
+@require_application_permission(EDIT_METADATA)
 @require_POST
 def remove_product_groups(_request: HttpRequest, id: int) -> HttpResponse:
-    """
-    Staff Route. Removes a ProductGroup
-
-    Parameters:
-    request (HttpRequest): incoming HTTP request (unused)
-    id (int): id of ProductGroup to be deleted 
-
-    Returns:
-    response (HttpResponse): HTTP response redirecting to ProductGroup view
-    """
+    """Delete a product group for a metadata editor."""
     group = ProductGroup.objects.get(id = id)
     group.delete()
     return redirect('/product-groups')
 
-@permission_required("helloworld.view_productgroup")
+@login_required
 def export_product_groups(_request: HttpRequest) -> HttpResponse:
-    """
-    Staff Route. Exports all entries in ProductGroup table to csv
-
-    Parameters:
-    request (HttpRequest): incoming HTTP request
-
-    Returns:
-    response (HttpResponse): HTTP response containing ProductGroup data in csv
-    """
+    """Export product groups for a signed-in user."""
     response = HttpResponse(content_type='text/csv')
     response['Content-Disposition'] = 'attachment; filename="product_groups.csv"'
 
@@ -1133,19 +881,10 @@ def export_product_groups(_request: HttpRequest) -> HttpResponse:
 
     return response
 
+@login_required
+@require_post_permission(EDIT_METADATA)
 def status(request: HttpRequest) -> HttpResponse:
-    """
-    Protected Route. Shows all entries from Status table
-    for POST requests, saves form data to Status table
-
-    Parameters:
-    request (HttpRequest): incoming HTTP request
-
-    Returns:
-    response (HttpResponse): HTTP response containing Status data
-    """
-    _require_view_or_add_permission(request, 'add_status', 'view_status')
-
+    """List statuses and accept permitted status creation."""
     status = Status.objects.all()
     if request.method == 'POST':
         form = StatusForm(request.POST)
@@ -1157,34 +896,17 @@ def status(request: HttpRequest) -> HttpResponse:
 
     return render(request, 'status.html', {'form': form, 'data': status, 'type': 'status', 'delete_url': 'remove_status'})
 
-@staff_member_required
+@require_application_permission(EDIT_METADATA)
 @require_POST
 def remove_status(_request: HttpRequest, id: int) -> HttpResponse:
-    """
-    Staff Route. Removes a Status
-
-    Parameters:
-    request (HttpRequest): incoming HTTP request (unused)
-    id (int): id of Status to be deleted 
-
-    Returns:
-    response (HttpResponse): HTTP response redirecting to Status view
-    """
+    """Delete a status for a metadata editor."""
     status = Status.objects.get(id = id)
     status.delete()
     return redirect('/status')
 
-@permission_required("helloworld.view_status")
+@login_required
 def export_status(_request: HttpRequest) -> HttpResponse:
-    """
-    Staff Route. Exports all entries in Status table to csv
-
-    Parameters:
-    request (HttpRequest): incoming HTTP request
-
-    Returns:
-    response (HttpResponse): HTTP response containing Status data in csv
-    """
+    """Export statuses for a signed-in user."""
     response = HttpResponse(content_type='text/csv')
     response['Content-Disposition'] = 'attachment; filename="status.csv"'
 
@@ -1197,19 +919,10 @@ def export_status(_request: HttpRequest) -> HttpResponse:
 
     return response
 
+@login_required
+@require_post_permission(EDIT_METADATA)
 def grower(request: HttpRequest) -> HttpResponse:
-    """
-    Protected Route. Shows all entries from Grower table
-    for POST requests, saves form data to Grower table
-
-    Parameters:
-    request (HttpRequest): incoming HTTP request
-
-    Returns:
-    response (HttpResponse): HTTP response containing Grower data
-    """
-    _require_view_or_add_permission(request, 'add_grower', 'view_grower')
-
+    """List grower types and accept permitted creation."""
     growers = Grower.objects.all()
     if request.method == 'POST':
         form = GrowerForm(request.POST)
@@ -1221,34 +934,17 @@ def grower(request: HttpRequest) -> HttpResponse:
 
     return render(request, 'grower.html', {'form': form, 'data': growers, 'delete_url': 'remove_grower', 'type': 'grower'})
 
-@staff_member_required
+@require_application_permission(EDIT_METADATA)
 @require_POST
 def remove_grower(_request: HttpRequest, id: int) -> HttpResponse:
-    """
-    Staff Route. Removes a Grower
-
-    Parameters:
-    request (HttpRequest): incoming HTTP request (unused)
-    id (int): id of Grower to be deleted 
-
-    Returns:
-    response (HttpResponse): HTTP response redirecting to Grower view
-    """
+    """Delete a grower type for a metadata editor."""
     grower = Grower.objects.get(id = id)
     grower.delete()
     return redirect('/grower')
 
-@permission_required("helloworld.view_grower")
+@login_required
 def export_grower(_request: HttpRequest) -> HttpResponse:
-    """
-    Staff Route. Exports all entries in Grower table to csv
-
-    Parameters:
-    request (HttpRequest): incoming HTTP request
-
-    Returns:
-    response (HttpResponse): HTTP response containing Grower data in csv
-    """
+    """Export grower types for a signed-in user."""
     response = HttpResponse(content_type='text/csv')
     response['Content-Disposition'] = 'attachment; filename="grower.csv"'
 
@@ -1261,19 +957,10 @@ def export_grower(_request: HttpRequest) -> HttpResponse:
 
     return response
 
+@login_required
+@require_post_permission(EDIT_METADATA)
 def industry(request: HttpRequest) -> HttpResponse:
-    """
-    Protected Route. Shows all entries from Industry table
-    for POST requests, saves form data to Industry table
-
-    Parameters:
-    request (HttpRequest): incoming HTTP request
-
-    Returns:
-    response (HttpResponse): HTTP response containing Industry data
-    """
-    _require_view_or_add_permission(request, 'add_industry', 'view_industry')
-
+    """List industries and accept permitted industry creation."""
     industries = Industry.objects.all()
     if request.method == 'POST':
         form = IndustryForm(request.POST)
@@ -1285,34 +972,17 @@ def industry(request: HttpRequest) -> HttpResponse:
 
     return render(request, 'industry.html', {'form': form, 'data': industries, 'type': 'industries', 'delete_url': 'remove_industry'})
 
-@staff_member_required
+@require_application_permission(EDIT_METADATA)
 @require_POST
 def remove_industry(_request: HttpRequest, id: int) -> HttpResponse:
-    """
-    Staff Route. Removes an Industry
-
-    Parameters:
-    request (HttpRequest): incoming HTTP request (unused)
-    id (int): id of Industry to be deleted 
-
-    Returns:
-    response (HttpResponse): HTTP response redirecting to Industry view
-    """
+    """Delete an industry for a metadata editor."""
     industry = Industry.objects.get(id = id)
     industry.delete()
     return redirect('/industry')
 
-@permission_required("helloworld.view_industry")
+@login_required
 def export_industry(_request: HttpRequest) -> HttpResponse:
-    """
-    Staff Route. Exports all entries in Industry table to csv
-
-    Parameters:
-    request (HttpRequest): incoming HTTP request
-
-    Returns:
-    response (HttpResponse): HTTP response containing Industry data in csv
-    """
+    """Export industries for a signed-in user."""
     response = HttpResponse(content_type='text/csv')
     response['Content-Disposition'] = 'attachment; filename="industry.csv"'
 
@@ -1325,17 +995,9 @@ def export_industry(_request: HttpRequest) -> HttpResponse:
 
     return response
 
-@staff_member_required
+@require_application_permission(REVIEW_COMPANY_CHANGES)
 def dbChanges(request: HttpRequest) -> HttpResponse:
-    """
-    Protected Route. Shows all entries from PendingChanges table
-
-    Parameters:
-    request (HttpRequest): incoming HTTP request
-
-    Returns:
-    response (HttpResponse): HTTP response containing PendingChanges data
-    """
+    """Show all pending company changes to reviewers."""
     
     # Edit Changes (linked to a Company object)
     edit_changes = (
@@ -1384,11 +1046,9 @@ def dbChanges(request: HttpRequest) -> HttpResponse:
     
     return render(request, 'companies_pending.html', {'changes_list': changes_list})
 
-@login_required
+@require_application_permission(EDIT_COMPANIES)
 def myChanges(request: HttpRequest) -> HttpResponse:
-    if not request.user.is_authenticated:
-        return redirect('user/login/')
-    
+    """Show only the current editor's company submissions."""
     changes = PendingChanges.objects.filter(author=request.user)
     return render(request, 'my_changes.html', {'changes': changes})
 

@@ -85,6 +85,6 @@ urlpatterns = [
     path('reset/done/', auth_views.PasswordResetCompleteView.as_view(), name='password_reset_complete'),
 
     # Changes
-    path('changes/', views.dbChanges),
+    path('changes/', views.dbChanges, name='changes'),
     path('my_changes/', views.myChanges, name='my_changes'),
 ]

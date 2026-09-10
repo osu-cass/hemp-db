@@ -9,6 +9,8 @@ from unittest.mock import patch
 import pandas as pd
 from django.contrib.messages import get_messages
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Permission
+from django.contrib.contenttypes.models import ContentType
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import (
     IntegrityError,
@@ -38,6 +40,7 @@ from .models import (
     Status,
     UploadIndex,
 )
+from .permissions import EDIT_COMPANIES
 from .upload import (
     IMPORT_BATCH_SIZE,
     UploadValidationError,
@@ -102,11 +105,17 @@ class UploadWizardTests(TestCase):
     """Keep the staged-company preview bounded and query-efficient."""
 
     def setUp(self):
-        """Create a staff request factory for direct view measurements."""
+        """Create an upload editor for direct view measurements."""
         self.user = get_user_model().objects.create_user(
             username="staff",
             password="password",
             is_staff=True,
+        )
+        self.user.user_permissions.add(
+            Permission.objects.get(
+                content_type=ContentType.objects.get_for_model(Company),
+                codename=EDIT_COMPANIES.rsplit(".", 1)[1],
+            )
         )
         self.user.get_all_permissions()
         self.factory = RequestFactory()
@@ -123,7 +132,7 @@ class UploadWizardTests(TestCase):
         return company
 
     def _get_wizard(self, page=None):
-        """Render a wizard page as a staff user."""
+        """Render a wizard page as an upload editor."""
         path = "/upload_wizard" if page is None else f"/upload_wizard?page={page}"
         request = self.factory.get(path)
         request.user = self.user
@@ -204,7 +213,7 @@ class UploadWizardTests(TestCase):
                 add_message.assert_called_once_with(request, message)
 
     def test_staff_client_approves_with_csrf_message_and_redirect(self):
-        """Approve through the real staff and CSRF middleware path."""
+        """Approve through the editor and CSRF middleware path."""
         staged = self._stage("Client Approved")
         client = Client(enforce_csrf_checks=True)
         client.force_login(self.user)

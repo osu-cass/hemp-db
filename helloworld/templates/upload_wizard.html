@@ -67,12 +67,14 @@
       </nav>
     {% endif %}
 
-    <form action="/upload_wizard" method="POST"> 
-      {% csrf_token %}
-      <button type="submit" name="add-all" class="btn btn-primary">Add All</button>
-      <button type="submit" name="add-unique" class="btn btn-primary">Add Unique</button>
-      <button type="submit" name="cancel" class="btn btn-primary">Cancel All</button>
-    </form>
+    {% if perms.helloworld.edit_companies %}
+      <form action="/upload_wizard" method="POST">
+        {% csrf_token %}
+        <button type="submit" name="add-all" class="btn btn-primary">Add All</button>
+        <button type="submit" name="add-unique" class="btn btn-primary">Add Unique</button>
+        <button type="submit" name="cancel" class="btn btn-primary">Cancel All</button>
+      </form>
+    {% endif %}
   {% else %}
     <p style="display: flex; height: 80vh; align-items: center; text-align: center; justify-content: center;">
       No Uploads staged

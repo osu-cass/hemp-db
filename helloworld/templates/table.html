@@ -3,7 +3,9 @@
     <tr>
       <th scope="col">ID</th>
       <th scope="col">{{ type }}</th>
-      <th> Action </th>
+      {% if perms.helloworld.edit_metadata %}
+        <th>Action</th>
+      {% endif %}
     </tr>
   </thead>
   <tbody>
@@ -11,6 +13,7 @@
       <tr>
         <td>{{ row.id }}</td>
         <td>{{ row }}</td>
+        {% if perms.helloworld.edit_metadata %}
         <td><form method="post" action="/{{ delete_url }}/{{ row.id }}" class="d-inline">
           {% csrf_token %}
           <button type="submit" class="btn btn-danger" aria-label="Delete {{ row }}" data-confirm-message="Are You Sure You Would Like To Delete This?">
@@ -20,6 +23,7 @@
           </svg>
           </button>
         </form></td>
+        {% endif %}
       </tr>
     {% endfor %}
   </tbody>
