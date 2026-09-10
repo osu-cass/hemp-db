@@ -67,7 +67,7 @@
       </nav>
     {% endif %}
 
-    {% if perms.helloworld.review_company_upload %}
+    {% if perms.helloworld.edit_companies %}
       <form action="/upload_wizard" method="POST">
         {% csrf_token %}
         <button type="submit" name="add-all" class="btn btn-primary">Add All</button>

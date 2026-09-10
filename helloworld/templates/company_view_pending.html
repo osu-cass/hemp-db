@@ -10,8 +10,12 @@
     <h1 class="d-flex justify-content-center mb-2">{{ change.company.Name }}</h1>
     <h3 class="d-flex justify-content-center mb-5">Change Type: {{ change.changeType }}</h3>
     <hr />
-    {% if perms.helloworld.review_pending_change and change.status == "P" %}
+    {% if perms.helloworld.review_company_changes %}
     <a type="button" class="btn btn-secondary rounded-pill mx-3 my-2 px-3" href="/changes"> Back </a>
+    {% elif perms.helloworld.edit_companies %}
+    <a type="button" class="btn btn-secondary rounded-pill mx-3 my-2 px-3" href="/my_changes"> Back </a>
+    {% endif %}
+    {% if perms.helloworld.review_company_changes and change.status == "P" %}
     <form method="post" action="{% url 'company-pending-approve' change.id %}" class="d-inline">
       {% csrf_token %}
       <button type="submit" class="btn btn-secondary rounded-pill mx-3 my-2 px-3">Approve</button>

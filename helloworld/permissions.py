@@ -1,4 +1,4 @@
-"""Feature permissions and authorization helpers for HempDB workflows."""
+"""Application permissions and authorization helpers for HempDB workflows."""
 
 from functools import wraps
 
@@ -8,27 +8,20 @@ from django.contrib.auth import get_user_model
 from django.db.models import Q
 from django.shortcuts import resolve_url
 
-SUBMIT_COMPANY_CHANGE = "helloworld.submit_company_change"
-REVIEW_PENDING_CHANGE = "helloworld.review_pending_change"
-UPLOAD_COMPANY_DATA = "helloworld.upload_company_data"
-REVIEW_COMPANY_UPLOAD = "helloworld.review_company_upload"
-
-FEATURE_PERMISSIONS = (
-    SUBMIT_COMPANY_CHANGE,
-    REVIEW_PENDING_CHANGE,
-    UPLOAD_COMPANY_DATA,
-    REVIEW_COMPANY_UPLOAD,
-)
-
-
-def permission_name(permission):
-    """Return a fully qualified permission name for the HempDB app."""
-    return permission if "." in permission else f"helloworld.{permission}"
-
+EDIT_COMPANIES = "helloworld.edit_companies"
+REVIEW_COMPANY_CHANGES = "helloworld.review_company_changes"
+EDIT_METADATA = "helloworld.edit_metadata"
 
 def has_permission(user, permission):
     """Return whether an authenticated user has the named permission."""
-    return user.is_authenticated and user.has_perm(permission_name(permission))
+    return user.is_authenticated and user.has_perm(permission)
+
+
+def can_view_pending_change(user, change):
+    """Allow reviewers to view any change and editors to view their own."""
+    return has_permission(user, REVIEW_COMPANY_CHANGES) or (
+        has_permission(user, EDIT_COMPANIES) and change.author_id == user.pk
+    )
 
 
 def require_permission(request, permission):
@@ -37,48 +30,37 @@ def require_permission(request, permission):
         raise PermissionDenied
 
 
-def has_feature_permission(user, permission):
-    """Return whether a user has a feature permission or is a superuser."""
-    return has_permission(user, permission)
-
-
-def require_feature_permission(permission):
-    """Decorate a view with a stable feature-permission requirement."""
+def require_post_permission(permission):
+    """Require a permission when a view receives a POST request."""
 
     def decorator(view):
-        """Wrap a view with feature-permission enforcement."""
-
         @wraps(view)
         def wrapped(request, *args, **kwargs):
-            """Enforce the feature permission before calling the view."""
-            if not request.user.is_authenticated:
-                from django.contrib.auth.views import redirect_to_login
-                return redirect_to_login(
-                    request.get_full_path(), resolve_url(settings.LOGIN_URL)
-                )
-            if not has_feature_permission(request.user, permission):
-                raise PermissionDenied
+            if request.method == "POST":
+                require_permission(request, permission)
             return view(request, *args, **kwargs)
+
         return wrapped
+
     return decorator
 
 
-def require_any_feature_permission(*permissions):
-    """Require at least one of the named feature permissions."""
+def require_any_application_permission(*permissions):
+    """Require at least one of the named application permissions."""
 
     def decorator(view):
-        """Wrap a view with feature-permission enforcement."""
+        """Wrap a view with application-permission enforcement."""
 
         @wraps(view)
         def wrapped(request, *args, **kwargs):
-            """Enforce feature access before calling the view."""
+            """Enforce application access before calling the view."""
             if not request.user.is_authenticated:
                 from django.contrib.auth.views import redirect_to_login
                 return redirect_to_login(
                     request.get_full_path(), resolve_url(settings.LOGIN_URL)
                 )
             if not any(
-                has_feature_permission(request.user, permission)
+                has_permission(request.user, permission)
                 for permission in permissions
             ):
                 raise PermissionDenied
@@ -87,16 +69,13 @@ def require_any_feature_permission(*permissions):
     return decorator
 
 
-def can_view_pending_change(user, change):
-    """Return whether the user may inspect a pending-change record."""
-    return user.is_authenticated and (
-        change.author_id == user.pk
-        or has_feature_permission(user, REVIEW_PENDING_CHANGE)
-    )
+def require_application_permission(permission):
+    """Decorate a view with an application-permission requirement."""
+    return require_any_application_permission(permission)
 
 
-def users_with_feature_permission(permission):
-    """Return active users who effectively hold a feature permission."""
+def users_with_application_permission(permission):
+    """Return active users who effectively hold an application permission."""
     app_label, codename = permission.split(".", 1)
     user_model = get_user_model()
     return (

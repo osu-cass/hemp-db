@@ -1,6 +1,6 @@
 from django.core.mail import send_mail
 from django.conf import settings
-from .permissions import users_with_feature_permission
+from .permissions import REVIEW_COMPANY_CHANGES, users_with_application_permission
 
 # Django Emails: https://docs.djangoproject.com/en/5.1/topics/email/
 
@@ -42,9 +42,8 @@ def email_admins(action: str, company_name: str, pending_change_id: int, request
     <p>View pending changes <a href="{settings.EMAIL_LINK}/changes">here</a>.</p>
     """
 
-    # Feature permissions are the notification audience, not mutable group names.
     admin_emails = list(
-        users_with_feature_permission("helloworld.review_pending_change")
+        users_with_application_permission(REVIEW_COMPANY_CHANGES)
         .exclude(email="")
         .values_list("email", flat=True)
     )

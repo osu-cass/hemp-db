@@ -3,7 +3,6 @@
       <ul class="navbar-nav">
         <li class="nav-item">
           <a class="nav-link link-light navbar-brand text-light" href="/">HempDB</a>
-        <!-- If user is not logged in, do not display navbar options -->
         {% if user.is_authenticated %}
         </li>
         <li class="nav-item dropdown">
@@ -11,45 +10,27 @@
             Databases
           </a>
           <div class="dropdown-menu" aria-labelledby="navbarDropdown">
-              {% if perms.helloworld.view_company %}
             <a class="dropdown-item" href="/companies">Companies</a>
-              {% endif %}
-              {% if perms.helloworld.view_solution %}
               <a class="dropdown-item" href="/solutions">Solutions</a>
-              {% endif %}
-              {% if perms.helloworld.view_category %}
               <a class="dropdown-item" href="/categories">Categories</a>
-              {% endif %}
-              {% if perms.helloworld.view_stakeholdergroups %}
               <a class="dropdown-item" href="/stakeholder-groups">Stakeholder Groups</a>
-              {% endif %}
-              {% if perms.helloworld.view_stage %}
               <a class="dropdown-item" href="/stages">Stages</a>
-              {% endif %}
-              {% if perms.helloworld.view_productgroup %}
               <a class="dropdown-item" href="/product-groups">Product Groups</a>
-              {% endif %}
-              {% if perms.helloworld.view_status %}
               <a class="dropdown-item" href="/status">Status</a>
-              {% endif %}
-              {% if perms.helloworld.view_grower %}
               <a class="dropdown-item" href="/grower">Grower</a>
-              {% endif %}
-              {% if perms.helloworld.view_industry %}
               <a class="dropdown-item" href="/industry">Industry</a>
-            {% endif %}
           </div>
         </li>
         {% endif %}
         <li class="nav-item">
           <a class="nav-link link-light px-3 text-light" href="/map">Map</a>
         </li>
-        {% if perms.helloworld.review_pending_change %}
+        {% if perms.helloworld.review_company_changes %}
           <li class="nav-item">
             <a class="nav-link link-light px-3 text-light" href="/changes">Changes</a>
           </li>
         {% endif %}
-        {% if perms.helloworld.upload_company_data or perms.helloworld.review_company_upload %}
+        {% if perms.helloworld.edit_companies %}
           <li class="nav-item">
             <a class="nav-link link-light px-3 text-light" href="/upload_wizard">Uploads</a>
           </li>
@@ -64,10 +45,12 @@
             {% if user.is_active and user.is_staff %}
               <a class="dropdown-item" href="/admin">Admin</a>
             {% endif %}
-            {% if perms.helloworld.review_pending_change %}
-              <a class="dropdown-item" href="/changes">Review Changes</a>
+            {% if perms.helloworld.review_company_changes %}
+              <a class="dropdown-item" href="/changes">Changes</a>
             {% endif %}
-            <a class="dropdown-item" href="/my_changes">My Changes</a>
+            {% if perms.helloworld.edit_companies %}
+              <a class="dropdown-item" href="/my_changes">My Changes</a>
+            {% endif %}
             <form method="post" action="{% url 'logout' %}">
               {% csrf_token %}
               <button type="submit" class="dropdown-item">Log out</button>

@@ -61,6 +61,9 @@ class Category(models.Model):
 
     class Meta:
         db_table = "category"
+        permissions = (
+            ("edit_metadata", "Can create and delete HempDB reference-table values"),
+        )
 
         verbose_name = "Category"
         verbose_name_plural = "Categories"
@@ -226,10 +229,6 @@ class PendingCompany(CompanyDetail):
 
     class Meta:
         db_table = "pending_company"
-        permissions = (
-            ("upload_company_data", "Can stage a spreadsheet upload"),
-            ("review_company_upload", "Can review a company upload"),
-        )
 
         verbose_name = "Pending Company"
         verbose_name_plural = "Pending Companies"
@@ -239,6 +238,10 @@ class Company(CompanyDetail):
     class Meta:
         db_table = "company"
         indexes = [models.Index(fields=["Name"], name="company_name_idx")]
+        permissions = (
+            ("edit_companies", "Can submit company changes and manage uploads"),
+            ("review_company_changes", "Can review company changes"),
+        )
 
         verbose_name = "Company"
         verbose_name_plural = "Companies"
@@ -265,10 +268,6 @@ class PendingChanges(models.Model):
 
     class Meta:
         db_table = "pending_change"
-        permissions = (
-            ("submit_company_change", "Can submit company changes"),
-            ("review_pending_change", "Can review pending company changes"),
-        )
 
         verbose_name = "Pending Change"
         verbose_name_plural = "Pending Changes"

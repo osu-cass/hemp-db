@@ -1,4 +1,4 @@
-from django.db import migrations
+from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
@@ -6,27 +6,32 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AlterModelOptions(
-            name="pendingcompany",
+            name="category",
             options={
-                "db_table": "pending_company",
+                "db_table": "category",
                 "permissions": (
-                    ("upload_company_data", "Can stage a spreadsheet upload"),
-                    ("review_company_upload", "Can review a company upload"),
+                    (
+                        "edit_metadata",
+                        "Can create and delete HempDB reference-table values",
+                    ),
                 ),
-                "verbose_name": "Pending Company",
-                "verbose_name_plural": "Pending Companies",
+                "verbose_name": "Category",
+                "verbose_name_plural": "Categories",
             },
         ),
         migrations.AlterModelOptions(
-            name="pendingchanges",
+            name="company",
             options={
-                "db_table": "pending_change",
+                "db_table": "company",
+                "indexes": [
+                    models.Index(fields=["Name"], name="company_name_idx")
+                ],
                 "permissions": (
-                    ("submit_company_change", "Can submit company changes"),
-                    ("review_pending_change", "Can review pending company changes"),
+                    ("edit_companies", "Can submit company changes and manage uploads"),
+                    ("review_company_changes", "Can review company changes"),
                 ),
-                "verbose_name": "Pending Change",
-                "verbose_name_plural": "Pending Changes",
+                "verbose_name": "Company",
+                "verbose_name_plural": "Companies",
             },
         ),
     ]
