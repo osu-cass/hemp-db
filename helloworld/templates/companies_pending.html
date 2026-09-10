@@ -1,65 +1,26 @@
 {% extends "master.html" %}
+{% load static %}
 
 {% block title %}
   HempDB
 {% endblock %}
 
+{% block extra_head %}
+  <script src="{% static 'helloworld/pending_changes.js' %}" defer></script>
+{% endblock %}
+
 {% block content %}
-  {% if changes_list.edit_changes|length == 0 and changes_list.create_changes|length == 0 and changes_list.delete_changes|length == 0 %}
-    <h2 style="text-align: center; margin-bottom: 20px; margin-top: 20px;">
-      No pending changes
-    </h2>
+  {% if has_pending_changes %}
+    <h2 class="text-center my-4">Review Pending Changes</h2>
   {% else %}
-    <h2 style="text-align: center; margin-bottom: 20px; margin-top: 20px;">
-      Review Pending Changes
-    </h2>
+    <h2 class="text-center my-4">No pending changes</h2>
   {% endif %}
+
   <div class="container d-flex justify-content-center">
     <div class="accordion w-75" id="pendingChangesAccordion">
-      
-      <!-- Edit Changes Accordion -->
-      <div class="accordion-item">
-        <h2 class="accordion-header" id="heading-edit">
-          <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-edit" aria-expanded="false" aria-controls="collapse-edit">
-            Edit Changes ({{ changes_list.edit_changes|length }})
-          </button>
-        </h2>
-        <div id="collapse-edit" class="accordion-collapse collapse" aria-labelledby="heading-edit" data-bs-parent="#pendingChangesAccordion">
-          <div class="accordion-body">
-            {% include 'pending_changes_views/change_table.html' with changes_list=changes_list.edit_changes change_tag="edit" %}
-          </div>
-        </div>
-      </div>
-
-      <!-- Create Changes Accordion -->
-      <div class="accordion-item">
-        <h2 class="accordion-header" id="heading-create">
-          <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-create" aria-expanded="false" aria-controls="collapse-create">
-            Create Changes ({{ changes_list.create_changes|length }})
-          </button>
-        </h2>
-        <div id="collapse-create" class="accordion-collapse collapse" aria-labelledby="heading-create" data-bs-parent="#pendingChangesAccordion">
-          <div class="accordion-body">
-            {% include 'pending_changes_views/change_table.html' with changes_list=changes_list.create_changes change_tag="create" %}
-          </div>
-        </div>
-      </div>
-
-      <!-- Delete Changes Accordion -->
-      <div class="accordion-item">
-        <h2 class="accordion-header" id="heading-delete">
-          <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-delete" aria-expanded="false" aria-controls="collapse-delete">
-            Delete Changes ({{ changes_list.delete_changes|length }})
-          </button>
-        </h2>
-        <div id="collapse-delete" class="accordion-collapse collapse" aria-labelledby="heading-delete" data-bs-parent="#pendingChangesAccordion">
-          <div class="accordion-body">
-            {% include 'pending_changes_views/change_table.html' with changes_list=changes_list.delete_changes change_tag="delete" %}
-          </div>
-        </div>
-      </div>
-
+      {% include "pending_changes_views/category.html" with category="edit" label="Edit Changes" count=category_counts.edit only %}
+      {% include "pending_changes_views/category.html" with category="create" label="Create Changes" count=category_counts.create only %}
+      {% include "pending_changes_views/category.html" with category="delete" label="Delete Changes" count=category_counts.delete only %}
     </div>
   </div>
-
 {% endblock %}
