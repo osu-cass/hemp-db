@@ -8,17 +8,22 @@ from django.contrib.auth.models import Group, Permission
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
+from helloworld.permissions import EDIT_COMPANIES, EDIT_METADATA, REVIEW_COMPANY_CHANGES
+
 DEFAULT_DEV_PASSWORD = "hempdb-dev"
 
 # Group names are local labels only; authorization checks permission codenames.
 LOCAL_GROUPS = {
     "editor": ("HempDB Local Editor", (
-        "view_company", "submit_company_change", "upload_company_data",
+        EDIT_COMPANIES.removeprefix("helloworld."),
     )),
     "reviewer": ("HempDB Local Data Manager", (
-        "view_company", "review_pending_change", "review_company_upload",
+        REVIEW_COMPANY_CHANGES.removeprefix("helloworld."),
     )),
-    "readonly": ("HempDB Local Read Only", ("view_company",)),
+    "metadata_editor": ("HempDB Local Metadata Editor", (
+        EDIT_METADATA.removeprefix("helloworld."),
+    )),
+    "readonly": ("HempDB Local Read Only", ()),
 }
 
 TEST_USERS = {
@@ -26,12 +31,13 @@ TEST_USERS = {
     "test_staff": {"is_staff": True, "is_superuser": False, "role": None},
     "test_editor": {"is_staff": False, "is_superuser": False, "role": "editor"},
     "test_reviewer": {"is_staff": False, "is_superuser": False, "role": "reviewer"},
+    "test_metadata_editor": {"is_staff": False, "is_superuser": False, "role": "metadata_editor"},
     "test_readonly": {"is_staff": False, "is_superuser": False, "role": "readonly"},
 }
 
 
 class Command(BaseCommand):
-    """Create the five local permission-test accounts."""
+    """Create local accounts for each application capability and admin boundary."""
 
     help = "Seed local permission test users (DEBUG mode only)"
 
