@@ -6,13 +6,15 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
+from django.contrib.contenttypes.models import ContentType
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
+from django.urls import reverse
 
 @override_settings(DEBUG=True)
 class SeedUsersTests(TestCase):
-    """Verify the five local accounts and their permission boundaries."""
+    """Verify local accounts and their permission boundaries."""
 
     def _seed(self):
         """Run users-only seeding with a known test password."""
@@ -26,7 +28,7 @@ class SeedUsersTests(TestCase):
             username: get_user_model().objects.get(username=username)
             for username in (
                 "test_superuser", "test_staff", "test_editor",
-                "test_reviewer", "test_readonly",
+                "test_reviewer", "test_metadata_editor", "test_readonly",
             )
         }
 
@@ -42,16 +44,13 @@ class SeedUsersTests(TestCase):
 
         expected = {
             "test_editor": {
-                "helloworld.view_company",
-                "helloworld.submit_company_change",
-                "helloworld.upload_company_data",
+                "helloworld.edit_companies",
             },
             "test_reviewer": {
-                "helloworld.view_company",
-                "helloworld.review_pending_change",
-                "helloworld.review_company_upload",
+                "helloworld.review_company_changes",
             },
-            "test_readonly": {"helloworld.view_company"},
+            "test_metadata_editor": {"helloworld.edit_metadata"},
+            "test_readonly": set(),
         }
         for username, permissions in expected.items():
             user = users[username]
@@ -78,6 +77,41 @@ class SeedUsersTests(TestCase):
         self.assertFalse(staff.is_superuser)
         self.assertEqual(staff.get_all_permissions(), set())
         self.assertFalse(staff.groups.exists())
+
+    def test_seeded_accounts_can_access_their_workflows(self):
+        """Exercise the real upload and review gates with seeded accounts."""
+        self._seed()
+        for username, upload_status, review_status in (
+            ("test_superuser", 200, 200),
+            ("test_staff", 403, 403),
+            ("test_editor", 200, 403),
+            ("test_reviewer", 403, 200),
+            ("test_metadata_editor", 403, 403),
+            ("test_readonly", 403, 403),
+        ):
+            with self.subTest(username=username):
+                self.client.force_login(get_user_model().objects.get(username=username))
+                self.assertEqual(
+                    self.client.get(reverse("upload-wizard")).status_code, upload_status
+                )
+                self.assertEqual(
+                    self.client.get(reverse("changes")).status_code, review_status
+                )
+
+    def test_rerun_replaces_legacy_group_grants(self):
+        """Replace old permission grants on existing seeded groups."""
+        self._seed()
+        editor = get_user_model().objects.get(username="test_editor")
+        legacy, _ = Permission.objects.get_or_create(
+            content_type=ContentType.objects.get(app_label="helloworld", model="company"),
+            codename="submit_company_change",
+            defaults={"name": "Legacy submission permission"},
+        )
+        editor.groups.get().permissions.set([legacy])
+        editor.user_permissions.add(legacy)
+        self._seed()
+        editor = get_user_model().objects.get(pk=editor.pk)
+        self.assertEqual(editor.get_all_permissions(), {"helloworld.edit_companies"})
 
     @override_settings(DEBUG=False)
     def test_seed_refuses_to_run_outside_debug_mode(self):
