@@ -86,5 +86,15 @@ urlpatterns = [
 
     # Changes
     path('changes/', views.dbChanges),
+    path(
+        'changes/<str:category>/companies/',
+        views.pending_change_companies,
+        name='pending-change-companies',
+    ),
+    path(
+        'changes/<str:category>/companies/<int:company_id>/',
+        views.pending_company_changes,
+        name='pending-company-changes',
+    ),
     path('my_changes/', views.myChanges, name='my_changes'),
 ]

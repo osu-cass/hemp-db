@@ -1,0 +1,22 @@
+<template data-pending-items>
+  <table>
+    <tbody data-pending-fragment-items>
+      {% for change in changes %}
+        <tr
+          class="pending-change-row position-relative"
+          data-pending-key="{{ change.id }}"
+        >
+          <td>
+            <a class="stretched-link" href="{% url 'company-view-pending' change.id %}">
+              {{ change.id }}
+            </a>
+          </td>
+          <td>{{ change.changeType }}</td>
+          <td>{{ change.author.username|default:"Unknown" }}</td>
+          <td>{{ change.created_at }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</template>
+<div data-pending-page data-next-url="{{ next_url }}"></div>
