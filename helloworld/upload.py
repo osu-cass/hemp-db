@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 import zipfile
 
@@ -15,7 +16,14 @@ from .signals import invalidate_map_cache
 
 
 class UploadValidationError(ValueError):
-    """Identify an upload that cannot be safely imported."""
+    """Identify an upload that cannot be safely imported.
+
+    ``errors`` holds every problem; the message may summarize them.
+    """
+
+    def __init__(self, message, errors=None):
+        super().__init__(message)
+        self.errors = list(errors) if errors else [message]
 
 
 REQUIRED_UPLOAD_COLUMNS = frozenset({"Name", "Country", "Status", "Industry", "Grower"})
@@ -26,12 +34,20 @@ FOREIGN_KEY_MODELS = {
 }
 EXCLUDED_MODEL_FIELDS = frozenset({"id", "dateCreated", "lastUpdated", "import_batch_id"})
 IMPORT_BATCH_SIZE = 500
+# Row problems listed in one error message; the rest are counted.
+MAX_REPORTED_ROW_ERRORS = 10
 
 SPREADSHEET_FIELDS = frozenset(
     field.name
     for field in PendingCompany._meta.concrete_fields
     if field.name not in EXCLUDED_MODEL_FIELDS
 )
+FIELD_MAX_LENGTHS = {
+    field.name: field.max_length
+    for field in PendingCompany._meta.concrete_fields
+    if field.name in SPREADSHEET_FIELDS
+    and field.max_length is not None
+}
 
 
 def _reset_file(uploaded_file):
@@ -63,6 +79,26 @@ def _normalize_dataframe(dataframe):
     return dataframe
 
 
+def _csv_parser_message(error):
+    """Describe a CSV parse failure with pandas' line and reason."""
+    summary = "The uploaded CSV has invalid row or delimiter formatting"
+    detail = str(error).strip().removeprefix("Error tokenizing data. C error: ")
+    if not detail:
+        return f"{summary}."
+    # pandas numbers this row from 0, with the header as row 0.
+    detail = re.sub(
+        r"EOF inside string starting at row (\d+)",
+        lambda match: f"a quoted cell starting on line {int(match[1]) + 1} is never closed",
+        detail,
+    )
+    note = (
+        " Line numbers count the header as line 1 and a cell with line breaks as one line."
+        if "line " in detail
+        else ""
+    )
+    return f"{summary} ({detail}).{note}"
+
+
 def read_upload_dataframe(uploaded_file):
     """Read a detectable XLSX workbook or a UTF-8 CSV upload."""
     if _is_xlsx(uploaded_file):
@@ -86,9 +122,7 @@ def read_upload_dataframe(uploaded_file):
         except pd.errors.EmptyDataError as error:
             raise UploadValidationError("The uploaded CSV contains no data.") from error
         except pd.errors.ParserError as error:
-            raise UploadValidationError(
-                "The uploaded CSV has invalid row or delimiter formatting."
-            ) from error
+            raise UploadValidationError(_csv_parser_message(error)) from error
 
     return _normalize_dataframe(dataframe)
 
@@ -168,8 +202,41 @@ def _resolve_reference(field_name, model, value, row_number, references):
     return instance
 
 
+def _length_errors(record, row_number):
+    """Return a row error for each value longer than its database column."""
+    errors = []
+    for field_name, max_length in FIELD_MAX_LENGTHS.items():
+        value = record.get(field_name)
+        if _is_missing(value):
+            continue
+        length = len(str(value))
+        if length > max_length:
+            errors.append(
+                f"Row {row_number}: {field_name} is {length} characters; "
+                f"the limit is {max_length}."
+            )
+    return errors
+
+
+def _row_errors_message(errors):
+    """Summarize row errors one per line, listing the first few and counting the rest."""
+    if len(errors) == 1:
+        return errors[0]
+    lines = [
+        f"{len(errors)} problems found. Correct these rows and upload again.",
+        *errors[:MAX_REPORTED_ROW_ERRORS],
+    ]
+    remaining = len(errors) - MAX_REPORTED_ROW_ERRORS
+    if remaining > 0:
+        lines.append(f"And {remaining} more.")
+    return "\n".join(lines)
+
+
 def _validated_records(dataframe):
-    """Validate every row and return constructor records in input order."""
+    """Validate every row and return constructor records in input order.
+
+    Collects every row problem so one failed upload reports all of them.
+    """
     rows = [
         (row_number, _base_record(row))
         for row_number, row in enumerate(dataframe.to_dict("records"), start=2)
@@ -178,14 +245,21 @@ def _validated_records(dataframe):
     # A list, because _reference_caches iterates it once per reference model.
     caches = _reference_caches(records)
     required_columns = REQUIRED_UPLOAD_COLUMNS - FOREIGN_KEY_MODELS.keys()
+    errors = []
     for row_number, record in rows:
-        for field_name in required_columns:
+        for field_name in sorted(required_columns):
             if _is_missing(record.get(field_name)):
-                raise UploadValidationError(f"Row {row_number}: {field_name} is required.")
+                errors.append(f"Row {row_number}: {field_name} is required.")
+        errors.extend(_length_errors(record, row_number))
         for field_name, model in FOREIGN_KEY_MODELS.items():
-            record[field_name] = _resolve_reference(
-                field_name, model, record.get(field_name), row_number, caches[field_name]
-            )
+            try:
+                record[field_name] = _resolve_reference(
+                    field_name, model, record.get(field_name), row_number, caches[field_name]
+                )
+            except UploadValidationError as error:
+                errors.append(str(error))
+    if errors:
+        raise UploadValidationError(_row_errors_message(errors), errors)
     return records
 
 

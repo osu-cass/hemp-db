@@ -9,8 +9,10 @@ from unittest.mock import patch
 import pandas as pd
 from django.contrib.messages import get_messages
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Permission
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import (
+    DataError,
     IntegrityError,
     close_old_connections,
     connection,
@@ -46,7 +48,7 @@ from .upload import (
     read_upload_dataframe,
     validate_upload_columns,
 )
-from .views import upload_wizard
+from .views import unexpected_upload_message, upload_wizard
 
 
 class UploadParsingTests(SimpleTestCase):
@@ -86,6 +88,70 @@ class UploadParsingTests(SimpleTestCase):
         read_upload_dataframe(uploaded_file)
 
         read_excel.assert_called_once_with(uploaded_file, engine="openpyxl")
+
+    def test_reports_csv_parser_line_and_reason(self):
+        """Pass pandas' line and reason through without its tokenizer prefix."""
+        uploaded_file = SimpleUploadedFile(
+            "companies.csv",
+            b'Name,Country\n"Multi\nline",USA\nAcme,USA,extra\n',
+        )
+
+        with self.assertRaises(UploadValidationError) as raised:
+            read_upload_dataframe(uploaded_file)
+
+        message = str(raised.exception)
+        self.assertEqual(
+            message,
+            "The uploaded CSV has invalid row or delimiter formatting "
+            "(Expected 2 fields in line 3, saw 3). Line numbers count the header "
+            "as line 1 and a cell with line breaks as one line.",
+        )
+
+    def test_reports_unclosed_csv_quote(self):
+        """Explain an unterminated quoted cell."""
+        uploaded_file = SimpleUploadedFile(
+            "companies.csv", b'Name,Country\n"Acme,USA\n'
+        )
+
+        with self.assertRaises(UploadValidationError) as raised:
+            read_upload_dataframe(uploaded_file)
+
+        self.assertEqual(
+            str(raised.exception),
+            "The uploaded CSV has invalid row or delimiter formatting "
+            "(a quoted cell starting on line 2 is never closed). Line numbers count "
+            "the header as line 1 and a cell with line breaks as one line.",
+        )
+
+    @patch(
+        "helloworld.upload.pd.read_csv",
+        side_effect=pd.errors.ParserError("Buffer overflow caught - possible malformed input file."),
+    )
+    def test_omits_line_note_when_parser_detail_has_no_line(self, read_csv):
+        """Skip the line-numbering note when pandas names no line."""
+        uploaded_file = SimpleUploadedFile("companies.csv", b"Name\n")
+
+        with self.assertRaises(UploadValidationError) as raised:
+            read_upload_dataframe(uploaded_file)
+
+        self.assertEqual(
+            str(raised.exception),
+            "The uploaded CSV has invalid row or delimiter formatting "
+            "(Buffer overflow caught - possible malformed input file.).",
+        )
+
+    @patch("helloworld.upload.pd.read_csv", side_effect=pd.errors.ParserError())
+    def test_reports_csv_parser_error_without_detail(self, read_csv):
+        """Fall back to the summary when pandas gives no detail."""
+        uploaded_file = SimpleUploadedFile("companies.csv", b"Name\n")
+
+        with self.assertRaises(UploadValidationError) as raised:
+            read_upload_dataframe(uploaded_file)
+
+        self.assertEqual(
+            str(raised.exception),
+            "The uploaded CSV has invalid row or delimiter formatting.",
+        )
 
     def test_reports_missing_required_columns(self):
         """Reject a file before any database import when headers are incomplete."""
@@ -443,6 +509,264 @@ class AtomicUploadTests(CompanyImportTestBase):
 
         self.assertFalse(PendingCompany.objects.exists())
         self.assertFalse(UploadIndex.objects.exists())
+
+
+class UploadRowErrorTests(CompanyImportTestBase):
+    """Report every row problem before anything reaches the database."""
+
+    def test_rejects_value_longer_than_its_column(self):
+        """Name the row, field, length, and limit for an oversized value."""
+        dataframe = self._dataframe(1)
+        dataframe["Products"] = ["x" * 251]
+
+        with self.assertRaisesMessage(
+            UploadValidationError,
+            "Row 2: Products is 251 characters; the limit is 250.",
+        ):
+            import_pending_companies(dataframe)
+
+        self.assertFalse(PendingCompany.objects.exists())
+
+    def test_accepts_value_at_its_column_limit(self):
+        """Stage a value whose length equals the column limit."""
+        dataframe = self._dataframe(1)
+        dataframe["Products"] = ["x" * 250]
+
+        company = import_pending_companies(dataframe)[0]
+
+        self.assertEqual(len(company.Products), 250)
+
+    def test_counts_line_breaks_inside_a_value(self):
+        """Measure multi-paragraph cells by characters, line breaks included."""
+        dataframe = self._dataframe(1)
+        dataframe["Products"] = ["x" * 125 + "\n" + "x" * 125]
+
+        with self.assertRaisesMessage(
+            UploadValidationError,
+            "Row 2: Products is 251 characters; the limit is 250.",
+        ):
+            import_pending_companies(dataframe)
+
+    def test_reports_every_row_problem_together(self):
+        """List required, length, and reference problems from different rows."""
+        dataframe = self._dataframe(3)
+        dataframe["Products"] = ["", "x" * 300, ""]
+        dataframe.loc[0, "Country"] = ""
+        dataframe.loc[2, "Status"] = 999999
+
+        with self.assertRaises(UploadValidationError) as raised:
+            import_pending_companies(dataframe)
+
+        self.assertEqual(
+            str(raised.exception),
+            "3 problems found. Correct these rows and upload again.\n"
+            "Row 2: Country is required.\n"
+            "Row 3: Products is 300 characters; the limit is 250.\n"
+            "Row 4: Status must contain a valid Status ID.",
+        )
+        self.assertFalse(PendingCompany.objects.exists())
+
+    def test_reports_every_problem_in_one_row(self):
+        """Keep checking a row after its first problem, including references."""
+        dataframe = self._dataframe(1)
+        dataframe["Products"] = ["x" * 251]
+        dataframe.loc[0, "Country"] = ""
+        dataframe.loc[0, "Status"] = 999999
+
+        with self.assertRaises(UploadValidationError) as raised:
+            import_pending_companies(dataframe)
+
+        self.assertEqual(
+            raised.exception.errors,
+            [
+                "Row 2: Country is required.",
+                "Row 2: Products is 251 characters; the limit is 250.",
+                "Row 2: Status must contain a valid Status ID.",
+            ],
+        )
+
+    def test_lists_all_problems_at_the_cap(self):
+        """List exactly the cap without a trailing count."""
+        dataframe = self._dataframe(10)
+        dataframe["Products"] = ["x" * 251] * 10
+
+        with self.assertRaises(UploadValidationError) as raised:
+            import_pending_companies(dataframe)
+
+        lines = str(raised.exception).split("\n")
+        self.assertEqual(len(lines), 11)
+        self.assertEqual(lines[-1], "Row 11: Products is 251 characters; the limit is 250.")
+
+    def test_caps_listed_problems_and_keeps_the_full_list(self):
+        """Cap the message while the exception keeps every problem."""
+        dataframe = self._dataframe(13)
+        dataframe["Products"] = ["x" * 251] * 13
+
+        with self.assertRaises(UploadValidationError) as raised:
+            import_pending_companies(dataframe)
+
+        lines = str(raised.exception).split("\n")
+        self.assertEqual(lines[0], "13 problems found. Correct these rows and upload again.")
+        self.assertEqual(lines[1], "Row 2: Products is 251 characters; the limit is 250.")
+        self.assertEqual(lines[10], "Row 11: Products is 251 characters; the limit is 250.")
+        self.assertEqual(lines[11], "And 3 more.")
+        self.assertEqual(len(lines), 12)
+        self.assertEqual(len(raised.exception.errors), 13)
+        self.assertEqual(
+            raised.exception.errors[-1],
+            "Row 14: Products is 251 characters; the limit is 250.",
+        )
+
+    def test_single_message_error_lists_itself(self):
+        """Default the problem list to the message for single-problem errors."""
+        error = UploadValidationError("The uploaded CSV contains no data.")
+
+        self.assertEqual(error.errors, ["The uploaded CSV contains no data."])
+
+
+class UnexpectedUploadMessageTests(SimpleTestCase):
+    """Show staff the underlying error when an upload fails without row context."""
+
+    def test_includes_error_type_and_detail(self):
+        """Name the exception class and its message."""
+        error = DataError(1406, "Data too long for column 'Products' at row 499")
+
+        message = unexpected_upload_message(error)
+
+        self.assertTrue(message.startswith("Upload failed unexpectedly (DataError: "))
+        self.assertIn("Data too long for column 'Products' at row 499", message)
+        self.assertIn("Nothing was imported.", message)
+
+    def test_truncates_long_detail(self):
+        """Cap the detail so a large error cannot flood the page."""
+        message = unexpected_upload_message(RuntimeError("x" * 1000))
+
+        self.assertIn("x" * 300 + "...)", message)
+        self.assertNotIn("x" * 301, message)
+
+    def test_handles_empty_detail(self):
+        """Fall back to a placeholder when the exception has no message."""
+        message = unexpected_upload_message(RuntimeError())
+
+        self.assertIn("(RuntimeError: no details)", message)
+
+
+class UploadViewTests(CompanyImportTestBase):
+    """Verify the staff upload route reports failures on the companies page."""
+
+    def setUp(self):
+        super().setUp()
+        self.client = Client()
+        user = get_user_model().objects.create_user(
+            username="staff", password="password", is_staff=True
+        )
+        # The companies page that failed uploads redirect to needs view access.
+        user.user_permissions.add(
+            Permission.objects.get(codename="view_company", content_type__app_label="helloworld")
+        )
+        self.client.force_login(user)
+
+    def _post_csv(self, *products, follow=False):
+        """Upload a CSV with one row per given Products value."""
+        rows = "".join(
+            f'Acme,USA,{self.status.pk},{self.industry.pk},{self.grower.pk},"{value}"\n'
+            for value in products
+        )
+        csv_text = f"Name,Country,Status,Industry,Grower,Products\n{rows}"
+        return self.client.post(
+            reverse("upload"),
+            {"file": SimpleUploadedFile("companies.csv", csv_text.encode())},
+            follow=follow,
+        )
+
+    def _messages(self, response):
+        return [str(message) for message in get_messages(response.wsgi_request)]
+
+    def test_valid_upload_redirects_to_wizard(self):
+        """Send a clean upload on to the review wizard."""
+        response = self._post_csv("CBD oil")
+
+        self.assertRedirects(
+            response, reverse("upload-wizard"), fetch_redirect_response=False
+        )
+        self.assertEqual(PendingCompany.objects.count(), 1)
+
+    def test_row_problem_is_shown_to_the_user(self):
+        """Show the row-level validation message instead of a generic failure."""
+        with self.assertLogs("helloworld.views", level="WARNING") as logs:
+            response = self._post_csv("x" * 251)
+
+        self.assertRedirects(response, reverse("companies"), fetch_redirect_response=False)
+        self.assertEqual(
+            self._messages(response),
+            ["Upload failed: Row 2: Products is 251 characters; the limit is 250."],
+        )
+        self.assertFalse(PendingCompany.objects.exists())
+        self.assertEqual(
+            logs.records[0].getMessage(),
+            "Company upload rejected for companies.csv by staff with 1 problem(s):\n"
+            "Row 2: Products is 251 characters; the limit is 250.",
+        )
+
+    def test_warning_log_lists_every_problem(self):
+        """Log the full problem list even when the message is capped."""
+        with self.assertLogs("helloworld.views", level="WARNING") as logs:
+            self._post_csv(*["x" * 251] * 13)
+
+        [record] = logs.records
+        logged = record.getMessage()
+        self.assertTrue(
+            logged.startswith(
+                "Company upload rejected for companies.csv by staff with 13 problem(s):\n"
+            )
+        )
+        for row_number in range(2, 15):
+            self.assertIn(f"Row {row_number}: Products is 251 characters", logged)
+        self.assertNotIn("more.", logged)
+
+    def test_companies_page_renders_problems_on_separate_lines(self):
+        """Render each listed problem on its own line in the alert."""
+        with self.assertLogs("helloworld.views", level="WARNING"):
+            response = self._post_csv("x" * 251, "x" * 251, follow=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Upload failed: 2 problems found. Correct these rows and upload again.<br>"
+            "Row 2: Products is 251 characters; the limit is 250.<br>"
+            "Row 3: Products is 251 characters; the limit is 250.",
+        )
+
+    def test_companies_page_escapes_message_html(self):
+        """Escape markup in a message while still converting line breaks."""
+        error = UploadValidationError("<b>Bad</b>\nRow 2: Name is required.")
+        with (
+            patch("helloworld.views.import_pending_companies", side_effect=error),
+            self.assertLogs("helloworld.views", level="WARNING"),
+        ):
+            response = self._post_csv("CBD oil", follow=True)
+
+        self.assertContains(
+            response, "Upload failed: &lt;b&gt;Bad&lt;/b&gt;<br>Row 2: Name is required."
+        )
+        self.assertNotContains(response, "<b>Bad</b>")
+
+    def test_unexpected_error_is_shown_and_logged_with_traceback(self):
+        """Attach the error detail to the message and log the full traceback."""
+        error = DataError(1406, "Data too long for column 'Products' at row 499")
+        with (
+            patch("helloworld.views.import_pending_companies", side_effect=error),
+            self.assertLogs("helloworld.views", level="ERROR") as logs,
+        ):
+            response = self._post_csv("CBD oil")
+
+        self.assertRedirects(response, reverse("companies"), fetch_redirect_response=False)
+        [message] = self._messages(response)
+        self.assertIn("DataError", message)
+        self.assertIn("Data too long for column 'Products' at row 499", message)
+        [record] = logs.records
+        self.assertIn("companies.csv by staff", record.getMessage())
+        self.assertIs(record.exc_info[1], error)
 
 
 class ImportQueryTests(CompanyImportTestBase):
