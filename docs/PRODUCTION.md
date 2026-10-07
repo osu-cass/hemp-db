@@ -115,8 +115,8 @@ These variables are optional overrides:
   `GUNICORN_GRACEFUL_TIMEOUT`, and `GUNICORN_KEEPALIVE` override the defaults
   in `gunicorn.conf.py`;
 - `DATABASE_CONN_MAX_AGE`, `DATABASE_CONN_HEALTH_CHECKS`, and Sentry's
-  `SENTRY_TRACES_SAMPLE_RATE` / `SENTRY_PROFILES_SAMPLE_RATE` override Django
-  defaults;
+  `SENTRY_TRACES_SAMPLE_RATE` / `SENTRY_PROFILES_SAMPLE_RATE` /
+  `SENTRY_MAX_VALUE_LENGTH` override Django defaults;
 - `DEFAULT_FROM_EMAIL`, `AUDIT_RECIPIENT`, and `CSP_REPORT_URI` are optional
   application overrides;
 - `SENTRY_DSN` enables the SDK. The matching overlay sets
