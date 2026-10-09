@@ -34,6 +34,31 @@ The public map remains available without signing in. My Changes shows only the c
 
 In Django Admin, the two company permissions belong to Company. The metadata permission belongs to Category and covers Create and Delete across all reference tables.
 
+### Local permission test users
+
+The local seed command can create one account for each access boundary without
+loading CSV data:
+
+```sh
+docker compose exec app python manage.py seed_test_users
+```
+
+This command refuses to run unless `DEBUG=true`. All six accounts use the
+password from `DEV_SEED_PASSWORD`, which defaults to `hempdb-dev` for local
+development.
+
+| Username | Expected access |
+|---|---|
+| `test_superuser` | Active Staff and Superuser; full application and admin access |
+| `test_staff` | Active Staff; can enter Admin but has no model or application permissions |
+| `test_editor` | `edit_companies`: company proposals, My Changes, and uploads |
+| `test_reviewer` | `review_company_changes`: review pending company changes; no uploads |
+| `test_metadata_editor` | `edit_metadata`: create and delete reference-table values |
+| `test_readonly` | No permissions; signed-in viewing and export of all database tables |
+
+Rerunning the command restores these accounts to the declared flags, groups,
+permissions, active state, and shared password. It does not change other users.
+
 ## User Management: Django Admin Portal
 
 Once logged in, staff users have the ability to access Django's admin portal by clicking on the "Admin" link in the username dropdown.
