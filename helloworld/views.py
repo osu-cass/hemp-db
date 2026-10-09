@@ -39,6 +39,12 @@ from .upload import (
 )
 from .notifications import email_admins
 from .authentication import activate_email
+from .pending_changes import (
+    InvalidCursor,
+    get_category_counts,
+    get_change_page,
+    get_company_page,
+)
 from django.shortcuts import render, redirect
 from django.contrib.auth import login, get_user_model
 from django.contrib.auth.decorators import login_required
@@ -48,9 +54,10 @@ from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.contenttypes.models import ContentType
 from django.forms.models import model_to_dict
 from django.contrib import messages
-from django.http import HttpResponse, HttpRequest
+from django.http import HttpResponse, HttpRequest, HttpResponseBadRequest
 from django.core.exceptions import PermissionDenied
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_GET, require_POST
+from django.urls import reverse
 from django.utils.http import urlsafe_base64_decode
 from django.utils.encoding import force_str
 from django.contrib.auth.tokens import default_token_generator
@@ -61,6 +68,7 @@ from django.conf import settings
 import csv
 import geocoder
 import logging
+from urllib.parse import urlencode
 from decimal import Decimal
 from copy import deepcopy
 
@@ -1327,62 +1335,74 @@ def export_industry(_request: HttpRequest) -> HttpResponse:
 
 @staff_member_required
 def dbChanges(request: HttpRequest) -> HttpResponse:
-    """
-    Protected Route. Shows all entries from PendingChanges table
-
-    Parameters:
-    request (HttpRequest): incoming HTTP request
-
-    Returns:
-    response (HttpResponse): HTTP response containing PendingChanges data
-    """
-    
-    # Edit Changes (linked to a Company object)
-    edit_changes = (
-        Company.objects.prefetch_related("pendingchanges_set__pending_company")
-        .filter(pendingchanges__changeType="edit",
-                pendingchanges__status=PendingChanges.PendingStatus.PENDING)
-        .distinct()
+    """Render pending-change category counts without loading change rows."""
+    category_counts = get_category_counts()
+    return render(
+        request,
+        "companies_pending.html",
+        {
+            "category_counts": category_counts,
+            "has_pending_changes": any(category_counts.values()),
+        },
     )
-    edit_changes_dict = {
-        company: list(company.pendingchanges_set.filter(changeType="edit").order_by("-created_at"))
-        for company in edit_changes
-    }
 
-    # Create Changes (linked to a Pending Company object)
-    create_changes = (
-        PendingChanges.objects.filter(changeType="create",
-                                      status=PendingChanges.PendingStatus.PENDING,)
-        .select_related("pending_company")
-        .order_by("-created_at")
+
+@staff_member_required
+@require_GET
+def pending_change_companies(
+    request: HttpRequest, category: str
+) -> HttpResponse:
+    """Render one page of company summaries for a pending category."""
+    try:
+        page = get_company_page(category, request.GET.get("cursor"))
+    except (InvalidCursor, ValueError):
+        return HttpResponseBadRequest("Invalid pending-change request.")
+
+    next_url = _pending_page_url(
+        "pending-change-companies",
+        [category],
+        page.next_cursor,
     )
-    create_changes_dict = {}
-    for change in create_changes:
-        company = change.pending_company
-        if company not in create_changes_dict:
-            create_changes_dict[company] = []
-        create_changes_dict[company].append(change)
-
-    # Delete Changes (linked to a Company object)
-    delete_changes = (
-        Company.objects.prefetch_related("pendingchanges_set")
-        .filter(pendingchanges__changeType="deletion",
-                pendingchanges__status=PendingChanges.PendingStatus.PENDING,)
-        .distinct()
+    return render(
+        request,
+        "pending_changes_views/company_summaries.html",
+        {
+            "category": category,
+            "summaries": page.items,
+            "next_url": next_url,
+        },
     )
-    delete_changes_dict = {
-        company: list(company.pendingchanges_set.filter(changeType="deletion").order_by("-created_at"))
-        for company in delete_changes
-    }
 
-    # Prepare context with all three categories
-    changes_list = {
-        "edit_changes": edit_changes_dict,
-        "create_changes": create_changes_dict,
-        "delete_changes": delete_changes_dict,
-    }
-    
-    return render(request, 'companies_pending.html', {'changes_list': changes_list})
+
+@staff_member_required
+@require_GET
+def pending_company_changes(
+    request: HttpRequest, category: str, company_id: int
+) -> HttpResponse:
+    """Render one page of pending rows for a company."""
+    try:
+        page = get_change_page(category, company_id, request.GET.get("cursor"))
+    except (InvalidCursor, ValueError):
+        return HttpResponseBadRequest("Invalid pending-change request.")
+
+    next_url = _pending_page_url(
+        "pending-company-changes",
+        [category, company_id],
+        page.next_cursor,
+    )
+    return render(
+        request,
+        "pending_changes_views/change_rows.html",
+        {"changes": page.items, "next_url": next_url},
+    )
+
+
+def _pending_page_url(name: str, args: list, cursor: str | None) -> str:
+    """Build the next fragment URL when another page exists."""
+    if cursor is None:
+        return ""
+    return f"{reverse(name, args=args)}?{urlencode({'cursor': cursor})}"
+
 
 @login_required
 def myChanges(request: HttpRequest) -> HttpResponse:
