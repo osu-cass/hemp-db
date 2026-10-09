@@ -64,8 +64,6 @@ print(last.message)
 
 ## Active Cron Jobs
 
-# CronAudit
+### CronAudit
 
-Execute the audit management command to generate a `.csv` file with database entries that are erroneous or old. More info in `hemp-db/helloworld/management/commands/audit.py`
-
-Future goal to automatically email the `.csv` list to admins once the cron job is successful, and email an error message if the job should fail.
+`CronAudit` runs the audit management command and emails the generated CSV to administrators. If audit generation fails, it logs the error and attempts to email the recipients. See [Auditing Database Entries](AUDIT.md) for configuration details.
