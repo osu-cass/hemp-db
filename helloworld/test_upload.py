@@ -1,11 +1,13 @@
 """Focused tests for spreadsheet parsing and atomic company imports."""
 
+import io
 import threading
 from datetime import timedelta
 from decimal import Decimal
 from unittest import skipUnless
 from unittest.mock import patch
 
+import openpyxl
 import pandas as pd
 from django.contrib.messages import get_messages
 from django.contrib.auth import get_user_model
@@ -44,6 +46,7 @@ from .upload import (
     IMPORT_BATCH_SIZE,
     UploadValidationError,
     approve_pending_companies,
+    cancel_pending_companies,
     import_pending_companies,
     read_upload_dataframe,
     validate_upload_columns,
@@ -52,7 +55,15 @@ from .views import unexpected_upload_message, upload_wizard
 
 
 class UploadParsingTests(SimpleTestCase):
-    """Verify format detection and required-column validation."""
+    """Verify format detection and column validation."""
+
+    REQUIRED_VALUES = {
+        "Name": "Acme",
+        "Country": "USA",
+        "Status": 1,
+        "Industry": 2,
+        "Grower": 3,
+    }
 
     def test_reads_utf8_csv_with_bom(self):
         """Read a UTF-8 CSV and normalize its header."""
@@ -162,6 +173,130 @@ class UploadParsingTests(SimpleTestCase):
             "The upload is missing required columns: Country, Grower, Industry, Status.",
         ):
             validate_upload_columns(dataframe)
+
+    def test_rejects_repeated_csv_header(self):
+        """Reject a CSV that repeats a header instead of dropping the copy."""
+        uploaded_file = SimpleUploadedFile(
+            "companies.csv",
+            b"Name,Country,Status,Industry,Grower,Country\nAcme,USA,1,2,3,Canada\n",
+        )
+
+        with self.assertRaises(UploadValidationError) as raised:
+            read_upload_dataframe(uploaded_file)
+
+        self.assertEqual(
+            str(raised.exception),
+            "The uploaded file contains duplicate columns: Country.",
+        )
+
+    def test_rejects_repeated_xlsx_header(self):
+        """Reject a workbook that repeats a header instead of dropping the copy."""
+        workbook = openpyxl.Workbook()
+        workbook.active.append(["Name", "Country", "Status", "Industry", "Grower", "Country"])
+        workbook.active.append(["Acme", "USA", 1, 2, 3, "Canada"])
+        content = io.BytesIO()
+        workbook.save(content)
+        uploaded_file = SimpleUploadedFile("companies.xlsx", content.getvalue())
+
+        with self.assertRaises(UploadValidationError) as raised:
+            read_upload_dataframe(uploaded_file)
+
+        self.assertEqual(
+            str(raised.exception),
+            "The uploaded file contains duplicate columns: Country.",
+        )
+
+    def test_rejects_headers_repeated_after_trimming(self):
+        """Treat headers that differ only by surrounding spaces as duplicates."""
+        uploaded_file = SimpleUploadedFile(
+            "companies.csv", b"Name,Country, Country\nAcme,USA,Canada\n"
+        )
+
+        with self.assertRaisesMessage(
+            UploadValidationError,
+            "The uploaded file contains duplicate columns: Country.",
+        ):
+            read_upload_dataframe(uploaded_file)
+
+    def test_drops_empty_columns_without_a_header(self):
+        """Ignore blank trailing columns that spreadsheet tools leave behind."""
+        uploaded_file = SimpleUploadedFile(
+            "companies.csv", b"Name,Country,\nAcme,USA,\nBeta,USA,\n"
+        )
+
+        dataframe = read_upload_dataframe(uploaded_file)
+
+        self.assertEqual(list(dataframe.columns), ["Name", "Country"])
+
+    def test_rejects_values_in_columns_without_a_header(self):
+        """Reject values that have no header to map them to a field."""
+        uploaded_file = SimpleUploadedFile(
+            "companies.csv", b"Name,,Country,\nAcme,,USA,x\nBeta,y,USA,\n"
+        )
+
+        with self.assertRaises(UploadValidationError) as raised:
+            read_upload_dataframe(uploaded_file)
+
+        self.assertEqual(
+            str(raised.exception),
+            "The upload has values in columns without a header: column 2, column 4.",
+        )
+
+    def test_rejects_unrecognized_columns(self):
+        """Reject columns that match no company field instead of dropping them."""
+        dataframe = pd.DataFrame(
+            [{**self.REQUIRED_VALUES, "Nickname": "Ace", "Fax": "555"}]
+        )
+
+        with self.assertRaises(UploadValidationError) as raised:
+            validate_upload_columns(dataframe)
+
+        self.assertEqual(
+            str(raised.exception),
+            "The upload has unrecognized columns: Fax, Nickname.",
+        )
+
+    def test_suggests_field_for_miscased_column(self):
+        """Name the field a column matches apart from letter case."""
+        dataframe = pd.DataFrame([{**self.REQUIRED_VALUES, "city": "Salem"}])
+
+        with self.assertRaisesMessage(
+            UploadValidationError,
+            "The upload has unrecognized columns: city (did you mean City?).",
+        ):
+            validate_upload_columns(dataframe)
+
+    def test_reports_missing_and_unrecognized_columns_together(self):
+        """Report a miscased required column as both missing and unrecognized."""
+        values = {**self.REQUIRED_VALUES}
+        values["country"] = values.pop("Country")
+        dataframe = pd.DataFrame([values])
+
+        with self.assertRaises(UploadValidationError) as raised:
+            validate_upload_columns(dataframe)
+
+        self.assertEqual(
+            raised.exception.errors,
+            [
+                "The upload is missing required columns: Country.",
+                "The upload has unrecognized columns: country (did you mean Country?).",
+            ],
+        )
+
+    def test_accepts_company_export_columns(self):
+        """Accept a re-uploaded export by ignoring its id and timestamp columns."""
+        dataframe = pd.DataFrame(
+            [
+                {
+                    "id": 7,
+                    **self.REQUIRED_VALUES,
+                    "dateCreated": "2026-01-01",
+                    "lastUpdated": "2026-01-02",
+                }
+            ]
+        )
+
+        self.assertIs(validate_upload_columns(dataframe), dataframe)
 
 
 class UploadWizardTests(TestCase):
@@ -291,11 +426,40 @@ class UploadWizardTests(TestCase):
         self.assertFalse(PendingCompany.objects.exists())
         self.assertFalse(UploadIndex.objects.exists())
 
+    def test_cancel_button_calls_the_cancel_helper(self):
+        """Route the cancel action through the locking helper."""
+        request = self.factory.post("/upload_wizard", {"cancel": "1"})
+        request.user = self.user
 
-class CompanyImportTestBase(TestCase):
+        with (
+            patch("helloworld.views.cancel_pending_companies") as cancel,
+            patch("helloworld.views.messages.info") as add_message,
+        ):
+            response = upload_wizard(request)
+
+        self.assertEqual(response.status_code, 302)
+        cancel.assert_called_once_with()
+        add_message.assert_called_once_with(request, "Canceled File Upload")
+
+    def test_unrecognized_post_keeps_the_staged_upload(self):
+        """Leave staged rows and their indexes alone when no action is named."""
+        staged = self._stage("Still Staged")
+        request = self.factory.post("/upload_wizard", {})
+        request.user = self.user
+
+        with patch("helloworld.views.messages.info"):
+            response = upload_wizard(request)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(PendingCompany.objects.filter(pk=staged.pk).exists())
+        self.assertTrue(UploadIndex.objects.filter(pendingID=str(staged.pk)).exists())
+
+
+class UploadFrameMixin:
     """Shared reference data and upload-frame builder for import tests."""
 
     def setUp(self):
+        super().setUp()
         self.status = Status.objects.create(status="Active")
         self.industry = Industry.objects.create(industry="Hemp")
         self.grower = Grower.objects.create(grower="Grower")
@@ -314,6 +478,10 @@ class CompanyImportTestBase(TestCase):
                 for index in range(count)
             ]
         )
+
+
+class CompanyImportTestBase(UploadFrameMixin, TestCase):
+    """Import tests that run inside a rolled-back transaction."""
 
 
 class AtomicUploadTests(CompanyImportTestBase):
@@ -970,6 +1138,31 @@ class PendingCompanyApprovalTests(CompanyImportTestBase):
         self.assertFalse(PendingCompany.objects.exists())
         self.assertFalse(UploadIndex.objects.exists())
 
+    def test_cancel_discards_staged_rows_without_promoting(self):
+        """Delete the staged rows, related pending rows and indexes on cancel."""
+        staged = self._stage("Canceled")
+        staged.Solutions.add(Solution.objects.create(solution="Fiber"))
+        UploadIndex.objects.create(pendingID="999999")
+
+        cancel_pending_companies()
+
+        self.assertFalse(Company.objects.exists())
+        self.assertFalse(PendingCompany.objects.exists())
+        self.assertFalse(PendingCompany.Solutions.through.objects.exists())
+        self.assertFalse(UploadIndex.objects.exists())
+
+    def test_removes_indexes_whose_pending_row_is_gone(self):
+        """Clear an index left behind by a pending row deleted elsewhere."""
+        staged = self._stage("Promoted")
+        UploadIndex.objects.create(pendingID="999999")
+
+        approve_pending_companies(unique_only=False)
+
+        self.assertEqual(
+            list(Company.objects.values_list("Name", flat=True)), [staged.Name]
+        )
+        self.assertFalse(UploadIndex.objects.exists())
+
     def test_failure_after_insert_rolls_back_everything_and_cache(self):
         """Roll back promotion and preserve staging rows after cleanup fails."""
         staged = self._stage("Rollback Company")
@@ -977,7 +1170,7 @@ class PendingCompanyApprovalTests(CompanyImportTestBase):
         with (
             patch.object(
                 UploadIndex.objects,
-                "all",
+                "filter",
                 side_effect=IntegrityError("Upload-index cleanup failed."),
             ),
             patch("helloworld.upload.invalidate_map_cache") as invalidate,
@@ -1089,3 +1282,80 @@ class ApprovalConcurrencyTests(TransactionTestCase):
         self.assertEqual(Company.objects.count(), 1)
         self.assertFalse(PendingCompany.objects.exists())
         self.assertFalse(UploadIndex.objects.exists())
+
+
+@skipUnless(connection.vendor == "mysql", "Requires MySQL row locking.")
+class UploadDuringStagingActionTests(UploadFrameMixin, TransactionTestCase):
+    """Keep an upload that commits mid-action staged for the next action."""
+
+    def setUp(self):
+        super().setUp()
+        self.first = PendingCompany.objects.create(
+            SrcKey="", Name="First", Address="", Country="USA"
+        )
+        UploadIndex.objects.create(pendingID=str(self.first.pk))
+
+    def _upload_after_lock(self, action):
+        """Run ``action`` and commit a second upload once it has locked the indexes."""
+        locked = threading.Event()
+        resume = threading.Event()
+        errors = []
+
+        def pause_after_lock(execute, sql, params, many, context):
+            result = execute(sql, params, many, context)
+            if "FOR UPDATE" in sql.upper() and "upload_index" in sql.lower():
+                locked.set()
+                if not resume.wait(10):
+                    raise TimeoutError("The staging action was not resumed.")
+            return result
+
+        def run_action():
+            close_old_connections()
+            thread_connection = connections["default"]
+            try:
+                with thread_connection.execute_wrapper(pause_after_lock):
+                    action()
+            except Exception as error:  # pragma: no cover - reported by assertion
+                errors.append(error)
+            finally:
+                thread_connection.close()
+
+        thread = threading.Thread(target=run_action)
+        thread.start()
+        try:
+            self.assertTrue(locked.wait(10))
+            later = import_pending_companies(self._dataframe(2))
+        finally:
+            resume.set()
+            thread.join(10)
+
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(errors, [])
+        return later
+
+    def _assert_only_staged(self, companies):
+        """Assert exactly ``companies`` remain staged with one index each."""
+        pending_ids = sorted(company.pk for company in companies)
+        self.assertEqual(
+            sorted(PendingCompany.objects.values_list("pk", flat=True)), pending_ids
+        )
+        self.assertEqual(
+            sorted(int(pk) for pk in UploadIndex.objects.values_list("pendingID", flat=True)),
+            pending_ids,
+        )
+
+    def test_approval_keeps_an_upload_committed_after_its_lock(self):
+        """Promote only the locked rows and keep the later upload's indexes."""
+        later = self._upload_after_lock(
+            lambda: approve_pending_companies(unique_only=False)
+        )
+
+        self.assertEqual(list(Company.objects.values_list("Name", flat=True)), ["First"])
+        self._assert_only_staged(later)
+
+    def test_cancel_keeps_an_upload_committed_after_its_lock(self):
+        """Discard only the locked rows and keep the later upload staged."""
+        later = self._upload_after_lock(cancel_pending_companies)
+
+        self.assertFalse(Company.objects.exists())
+        self._assert_only_staged(later)

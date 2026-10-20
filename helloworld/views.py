@@ -34,6 +34,7 @@ from .models import UploadIndex
 from .upload import (
     UploadValidationError,
     approve_pending_companies,
+    cancel_pending_companies,
     import_pending_companies,
     read_upload_dataframe,
 )
@@ -123,11 +124,10 @@ def upload_wizard(request: HttpRequest) -> HttpResponse:
             message = "Uploaded Unique Companies"
         # Upload Nothing
         elif "cancel" in request.POST:
-            companies.delete()
+            cancel_pending_companies()
             message = "Canceled File Upload"
-            UploadIndex.objects.all().delete()
         else:
-            UploadIndex.objects.all().delete()
+            return redirect("upload-wizard")
         messages.info(request, message)
         return redirect("/companies")
     duplicate = Company.objects.filter(Name=models.OuterRef("Name"))
