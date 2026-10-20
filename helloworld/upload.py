@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 import zipfile
+from collections import Counter
 
 import pandas as pd
 from django.db import transaction
@@ -15,7 +17,14 @@ from .signals import invalidate_map_cache
 
 
 class UploadValidationError(ValueError):
-    """Identify an upload that cannot be safely imported."""
+    """Identify an upload that cannot be safely imported.
+
+    ``errors`` holds every problem; the message may summarize them.
+    """
+
+    def __init__(self, message, errors=None):
+        super().__init__(message)
+        self.errors = list(errors) if errors else [message]
 
 
 REQUIRED_UPLOAD_COLUMNS = frozenset({"Name", "Country", "Status", "Industry", "Grower"})
@@ -24,14 +33,28 @@ FOREIGN_KEY_MODELS = {
     "Industry": Industry,
     "Grower": Grower,
 }
+# Fields uploads never set. Their columns, as in the company export, are ignored.
 EXCLUDED_MODEL_FIELDS = frozenset({"id", "dateCreated", "lastUpdated", "import_batch_id"})
 IMPORT_BATCH_SIZE = 500
+# Row problems listed in one error message; the rest are counted.
+MAX_REPORTED_ROW_ERRORS = 10
 
 SPREADSHEET_FIELDS = frozenset(
     field.name
     for field in PendingCompany._meta.concrete_fields
     if field.name not in EXCLUDED_MODEL_FIELDS
 )
+FIELD_MAX_LENGTHS = {
+    field.name: field.max_length
+    for field in PendingCompany._meta.concrete_fields
+    if field.name in SPREADSHEET_FIELDS
+    and field.max_length is not None
+}
+FIELDS_BY_LOWERCASE_NAME = {name.lower(): name for name in SPREADSHEET_FIELDS}
+
+# pandas renames a repeated header "Name" to "Name.1" and a blank one to "Unnamed: 3".
+RENAMED_DUPLICATE_HEADER = re.compile(r"(?P<name>.+)\.\d+")
+BLANK_HEADER = re.compile(r"Unnamed: \d+")
 
 
 def _reset_file(uploaded_file):
@@ -50,17 +73,75 @@ def _is_xlsx(uploaded_file):
     return signature == b"PK\x03\x04"
 
 
+def _is_blank_header(header):
+    """Return whether pandas named a column for a blank or whitespace-only header."""
+    if BLANK_HEADER.fullmatch(header):
+        return True
+    match = RENAMED_DUPLICATE_HEADER.fullmatch(header)
+    return not (match["name"] if match else header).strip()
+
+
 def _normalize_dataframe(dataframe):
-    """Normalize spreadsheet headers and reject empty or duplicate headers."""
+    """Normalize spreadsheet headers and drop empty columns that have no header.
+
+    Rejects duplicate headers and values under a blank header.
+    """
     if dataframe.empty:
         raise UploadValidationError("The uploaded file contains no data rows.")
 
-    columns = [str(column).strip().lstrip("\ufeff") for column in dataframe.columns]
-    if len(columns) != len(set(columns)):
-        raise UploadValidationError("The uploaded file contains duplicate column names.")
-
+    headers = [str(column) for column in dataframe.columns]
+    blank = {
+        position for position, header in enumerate(headers) if _is_blank_header(header)
+    }
+    columns = [header.strip().lstrip("\ufeff") for header in headers]
     dataframe.columns = columns
-    return dataframe
+    named = Counter(
+        column for position, column in enumerate(columns) if position not in blank
+    )
+    duplicates = {column for column, count in named.items() if count > 1} | {
+        match["name"]
+        for column in named
+        if (match := RENAMED_DUPLICATE_HEADER.fullmatch(column)) and match["name"] in named
+    }
+    if duplicates:
+        raise UploadValidationError(
+            f"The uploaded file contains duplicate columns: {', '.join(sorted(duplicates))}."
+        )
+
+    filled_blank = [
+        position
+        for position in sorted(blank)
+        if not dataframe.iloc[:, position].map(_is_missing).all()
+    ]
+    if filled_blank:
+        numbers = ", ".join(f"column {position + 1}" for position in filled_blank)
+        raise UploadValidationError(
+            f"The upload has values in columns without a header: {numbers}."
+        )
+
+    return dataframe.iloc[
+        :, [position for position in range(len(columns)) if position not in blank]
+    ]
+
+
+def _csv_parser_message(error):
+    """Describe a CSV parse failure with pandas' line and reason."""
+    summary = "The uploaded CSV has invalid row or delimiter formatting"
+    detail = str(error).strip().removeprefix("Error tokenizing data. C error: ")
+    if not detail:
+        return f"{summary}."
+    # pandas numbers this row from 0, with the header as row 0.
+    detail = re.sub(
+        r"EOF inside string starting at row (\d+)",
+        lambda match: f"a quoted cell starting on line {int(match[1]) + 1} is never closed",
+        detail,
+    )
+    note = (
+        " Line numbers count the header as line 1 and a cell with line breaks as one line."
+        if "line " in detail
+        else ""
+    )
+    return f"{summary} ({detail}).{note}"
 
 
 def read_upload_dataframe(uploaded_file):
@@ -86,19 +167,32 @@ def read_upload_dataframe(uploaded_file):
         except pd.errors.EmptyDataError as error:
             raise UploadValidationError("The uploaded CSV contains no data.") from error
         except pd.errors.ParserError as error:
-            raise UploadValidationError(
-                "The uploaded CSV has invalid row or delimiter formatting."
-            ) from error
+            raise UploadValidationError(_csv_parser_message(error)) from error
 
     return _normalize_dataframe(dataframe)
 
 
+def _unrecognized_column(column):
+    """Name an unknown column and the field it matches apart from letter case."""
+    field_name = FIELDS_BY_LOWERCASE_NAME.get(column.lower())
+    return f"{column} (did you mean {field_name}?)" if field_name else column
+
+
 def validate_upload_columns(dataframe):
-    """Ensure the upload contains the columns required by the import path."""
-    missing_columns = sorted(REQUIRED_UPLOAD_COLUMNS - set(dataframe.columns))
+    """Ensure the upload has every required column and no unrecognized ones."""
+    errors = []
+    columns = set(dataframe.columns)
+    missing_columns = sorted(REQUIRED_UPLOAD_COLUMNS - columns)
     if missing_columns:
-        columns = ", ".join(missing_columns)
-        raise UploadValidationError(f"The upload is missing required columns: {columns}.")
+        errors.append(
+            f"The upload is missing required columns: {', '.join(missing_columns)}."
+        )
+    unrecognized = sorted(columns - SPREADSHEET_FIELDS - EXCLUDED_MODEL_FIELDS)
+    if unrecognized:
+        names = ", ".join(_unrecognized_column(column) for column in unrecognized)
+        errors.append(f"The upload has unrecognized columns: {names}.")
+    if errors:
+        raise UploadValidationError("\n".join(errors), errors)
     return dataframe
 
 
@@ -168,8 +262,41 @@ def _resolve_reference(field_name, model, value, row_number, references):
     return instance
 
 
+def _length_errors(record, row_number):
+    """Return a row error for each value longer than its database column."""
+    errors = []
+    for field_name, max_length in FIELD_MAX_LENGTHS.items():
+        value = record.get(field_name)
+        if _is_missing(value):
+            continue
+        length = len(str(value))
+        if length > max_length:
+            errors.append(
+                f"Row {row_number}: {field_name} is {length} characters; "
+                f"the limit is {max_length}."
+            )
+    return errors
+
+
+def _row_errors_message(errors):
+    """Summarize row errors one per line, listing the first few and counting the rest."""
+    if len(errors) == 1:
+        return errors[0]
+    lines = [
+        f"{len(errors)} problems found. Correct these rows and upload again.",
+        *errors[:MAX_REPORTED_ROW_ERRORS],
+    ]
+    remaining = len(errors) - MAX_REPORTED_ROW_ERRORS
+    if remaining > 0:
+        lines.append(f"And {remaining} more.")
+    return "\n".join(lines)
+
+
 def _validated_records(dataframe):
-    """Validate every row and return constructor records in input order."""
+    """Validate every row and return constructor records in input order.
+
+    Collects every row problem so one failed upload reports all of them.
+    """
     rows = [
         (row_number, _base_record(row))
         for row_number, row in enumerate(dataframe.to_dict("records"), start=2)
@@ -178,14 +305,21 @@ def _validated_records(dataframe):
     # A list, because _reference_caches iterates it once per reference model.
     caches = _reference_caches(records)
     required_columns = REQUIRED_UPLOAD_COLUMNS - FOREIGN_KEY_MODELS.keys()
+    errors = []
     for row_number, record in rows:
-        for field_name in required_columns:
+        for field_name in sorted(required_columns):
             if _is_missing(record.get(field_name)):
-                raise UploadValidationError(f"Row {row_number}: {field_name} is required.")
+                errors.append(f"Row {row_number}: {field_name} is required.")
+        errors.extend(_length_errors(record, row_number))
         for field_name, model in FOREIGN_KEY_MODELS.items():
-            record[field_name] = _resolve_reference(
-                field_name, model, record.get(field_name), row_number, caches[field_name]
-            )
+            try:
+                record[field_name] = _resolve_reference(
+                    field_name, model, record.get(field_name), row_number, caches[field_name]
+                )
+            except UploadValidationError as error:
+                errors.append(str(error))
+    if errors:
+        raise UploadValidationError(_row_errors_message(errors), errors)
     return records
 
 
@@ -213,15 +347,32 @@ def import_pending_companies(dataframe):
     return persisted
 
 
+def _lock_staged_upload():
+    """Lock the current upload indexes and return their ids and pending ids."""
+    rows = list(UploadIndex.objects.select_for_update().values_list("pk", "pendingID"))
+    return [index_id for index_id, _ in rows], [pending_id for _, pending_id in rows]
+
+
+def _clear_staged_upload(index_ids, pending_ids):
+    """Delete the locked indexes and their pending companies.
+
+    An upload that committed after the lock keeps its indexes.
+    """
+    PendingCompany.objects.filter(pk__in=pending_ids).delete()
+    UploadIndex.objects.filter(pk__in=index_ids).delete()
+
+
+@transaction.atomic
+def cancel_pending_companies():
+    """Discard the locked staged upload without promoting it."""
+    _clear_staged_upload(*_lock_staged_upload())
+
+
 def approve_pending_companies(*, unique_only: bool) -> int:
-    """Promote indexed pending companies and remove the upload staging rows."""
+    """Promote the locked staged upload and clear its staging rows."""
     with transaction.atomic():
-        pending_ids = list(
-            UploadIndex.objects.select_for_update().values_list(
-                "pendingID", flat=True
-            )
-        )
-        if not pending_ids:
+        index_ids, pending_ids = _lock_staged_upload()
+        if not index_ids:
             return 0
 
         indexed_pending = PendingCompany.objects.filter(pk__in=pending_ids).order_by(
@@ -256,8 +407,7 @@ def approve_pending_companies(*, unique_only: bool) -> int:
         ]
         Company.objects.bulk_create(companies, batch_size=IMPORT_BATCH_SIZE)
 
-        PendingCompany.objects.filter(pk__in=pending_ids).delete()
-        UploadIndex.objects.all().delete()
+        _clear_staged_upload(index_ids, pending_ids)
         if companies:
             transaction.on_commit(lambda: invalidate_map_cache(sender=Company))
         return len(companies)

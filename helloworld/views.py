@@ -34,6 +34,7 @@ from .models import UploadIndex
 from .upload import (
     UploadValidationError,
     approve_pending_companies,
+    cancel_pending_companies,
     import_pending_companies,
     read_upload_dataframe,
 )
@@ -70,6 +71,18 @@ from django.db import models
 PAGE_INDEX=['A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z','0','1','2','3','4','5','6','7','8','9']
 logger = logging.getLogger(__name__)
 UPLOAD_WIZARD_PAGE_SIZE = 100
+MAX_UNEXPECTED_ERROR_LENGTH = 300
+
+
+def unexpected_upload_message(error: Exception) -> str:
+    """Build the staff-facing message for an upload failure with no row context."""
+    detail = str(error) or "no details"
+    if len(detail) > MAX_UNEXPECTED_ERROR_LENGTH:
+        detail = f"{detail[:MAX_UNEXPECTED_ERROR_LENGTH]}..."
+    return (
+        f"Upload failed unexpectedly ({type(error).__name__}: {detail}). "
+        "Nothing was imported. Contact an administrator if this keeps happening."
+    )
 
 
 def _require_permission(request: HttpRequest, permission: str) -> None:
@@ -111,11 +124,10 @@ def upload_wizard(request: HttpRequest) -> HttpResponse:
             message = "Uploaded Unique Companies"
         # Upload Nothing
         elif "cancel" in request.POST:
-            companies.delete()
+            cancel_pending_companies()
             message = "Canceled File Upload"
-            UploadIndex.objects.all().delete()
         else:
-            UploadIndex.objects.all().delete()
+            return redirect("upload-wizard")
         messages.info(request, message)
         return redirect("/companies")
     duplicate = Company.objects.filter(Name=models.OuterRef("Name"))
@@ -148,15 +160,22 @@ def upload_file(request: HttpRequest) -> HttpResponse:
                 dataframe = read_upload_dataframe(uploaded_file)
                 import_pending_companies(dataframe)
             except UploadValidationError as error:
-                logger.warning("Company upload rejected for %s: %s", uploaded_file.name, error)
+                logger.warning(
+                    "Company upload rejected for %s by %s with %d problem(s):\n%s",
+                    uploaded_file.name,
+                    request.user.get_username(),
+                    len(error.errors),
+                    "\n".join(error.errors),
+                )
                 messages.error(request, f"Upload failed: {error}")
                 return redirect("companies")
-            except Exception:
-                logger.exception("Unexpected company upload failure for %s", uploaded_file.name)
-                messages.error(
-                    request,
-                    "Upload failed unexpectedly. Check the file format or contact an administrator.",
+            except Exception as error:
+                logger.exception(
+                    "Unexpected company upload failure for %s by %s",
+                    uploaded_file.name,
+                    request.user.get_username(),
                 )
+                messages.error(request, unexpected_upload_message(error))
                 return redirect("companies")
             return redirect("upload-wizard")
         messages.error(request, "Upload failed: select a CSV or XLSX file to upload.")

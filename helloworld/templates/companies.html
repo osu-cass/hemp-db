@@ -8,8 +8,8 @@
 
 {% if messages %}
   {% for message in messages %}
-    <div class="alert {% if message.level == DEFAULT_MESSAGE_LEVELS.ERROR %} alert-danger {% else %} alert-success {% endif %} alert-dismissible fade show" role="alert" style="width: 40vw; margin-left: 20px; margin-top: 10px;">
-      <li{% if message.tags %} class="{{ message.tags }}"{% endif %} style="list-style-type: none;">{{ message }}</li>
+    <div class="alert {% if message.level == DEFAULT_MESSAGE_LEVELS.ERROR %} alert-danger {% else %} alert-success {% endif %} alert-dismissible fade show" role="alert" style="max-width: 48rem; margin: 10px 20px 1rem;">
+      <li{% if message.tags %} class="{{ message.tags }}"{% endif %} style="list-style-type: none;">{{ message|linebreaksbr }}</li>
       <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
     </div>
   {% endfor %}
