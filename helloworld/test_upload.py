@@ -228,6 +228,16 @@ class UploadParsingTests(SimpleTestCase):
 
         self.assertEqual(list(dataframe.columns), ["Name", "Country"])
 
+    def test_drops_empty_columns_with_repeated_whitespace_headers(self):
+        """Treat pandas' renamed copies of a whitespace-only header as blank."""
+        uploaded_file = SimpleUploadedFile(
+            "companies.csv", b"Name,Country, , \nAcme,USA,,\n"
+        )
+
+        dataframe = read_upload_dataframe(uploaded_file)
+
+        self.assertEqual(list(dataframe.columns), ["Name", "Country"])
+
     def test_rejects_values_in_columns_without_a_header(self):
         """Reject values that have no header to map them to a field."""
         uploaded_file = SimpleUploadedFile(

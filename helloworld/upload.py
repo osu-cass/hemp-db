@@ -73,6 +73,14 @@ def _is_xlsx(uploaded_file):
     return signature == b"PK\x03\x04"
 
 
+def _is_blank_header(header):
+    """Return whether pandas named a column for a blank or whitespace-only header."""
+    if BLANK_HEADER.fullmatch(header):
+        return True
+    match = RENAMED_DUPLICATE_HEADER.fullmatch(header)
+    return not (match["name"] if match else header).strip()
+
+
 def _normalize_dataframe(dataframe):
     """Normalize spreadsheet headers and drop empty columns that have no header.
 
@@ -81,13 +89,12 @@ def _normalize_dataframe(dataframe):
     if dataframe.empty:
         raise UploadValidationError("The uploaded file contains no data rows.")
 
-    columns = [str(column).strip().lstrip("\ufeff") for column in dataframe.columns]
-    dataframe.columns = columns
+    headers = [str(column) for column in dataframe.columns]
     blank = {
-        position
-        for position, column in enumerate(columns)
-        if not column or BLANK_HEADER.fullmatch(column)
+        position for position, header in enumerate(headers) if _is_blank_header(header)
     }
+    columns = [header.strip().lstrip("\ufeff") for header in headers]
+    dataframe.columns = columns
     named = Counter(
         column for position, column in enumerate(columns) if position not in blank
     )
