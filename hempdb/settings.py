@@ -307,6 +307,9 @@ if SENTRY_DSN:
         send_default_pii=False,
         traces_sample_rate=env_float('SENTRY_TRACES_SAMPLE_RATE', 0.1),
         profiles_sample_rate=env_float('SENTRY_PROFILES_SAMPLE_RATE', 0.0),
+        # Truncate long strings (e.g. SQL in frame locals) to keep events well
+        # under Sentry's 1 MiB limit; the SDK default is unlimited.
+        max_value_length=env_int('SENTRY_MAX_VALUE_LENGTH', 1024),
     )
 
 # Configuration for sending emails
