@@ -17,13 +17,6 @@ def has_permission(user, permission):
     return user.is_authenticated and user.has_perm(permission)
 
 
-def can_view_pending_change(user, change):
-    """Allow reviewers to view any change and editors to view their own."""
-    return has_permission(user, REVIEW_COMPANY_CHANGES) or (
-        has_permission(user, EDIT_COMPANIES) and change.author_id == user.pk
-    )
-
-
 def require_permission(request, permission):
     """Raise HTTP 403 unless the request user has the named permission."""
     if not has_permission(request.user, permission):

@@ -24,13 +24,31 @@ HempDB checks three application permissions instead of Group names:
 
 | Permission | Access it grants |
 | --- | --- |
-| `helloworld.edit_companies` | Submit company changes, view My Changes and the user's own pending-change details, and use the upload workflow. |
-| `helloworld.review_company_changes` | View pending company changes and approve or reject them. |
+| `helloworld.edit_companies` | Submit company changes, upload spreadsheets for review, view My Changes, and view every pending change without approving it. |
+| `helloworld.review_company_changes` | View pending company changes and approve or reject them, one at a time or a whole upload at once. |
 | `helloworld.edit_metadata` | Create and delete values in all reference tables. |
 
-Assign multiple permissions when a person needs multiple capabilities. New permissions are assigned explicitly in Django Admin; existing feature-permission grants do not grant access. Signed-in users can view and export every database table. Active staff users retain standard Django Admin access, and superusers receive all permissions.
+Assign multiple permissions when a person needs multiple capabilities. Permissions granted under the earlier four-permission design do not grant access. Signed-in users can view and export every database table. Active staff users retain standard Django Admin access, and superusers receive all permissions.
 
 The public map remains available without signing in. My Changes shows only the current user's submissions. The review permission alone does not grant upload access.
+
+### Roles
+
+Migration `0021_role_groups` creates one Group per role with its permission. Add users to these Groups in Django Admin. Do not tick `staff` or `superuser` for these roles.
+
+| Role | Group | Permissions |
+| --- | --- | --- |
+| Admin | none | `staff` and `superuser` checkboxes |
+| Researcher | `Researcher` | `helloworld.edit_companies` |
+| Data Manager | `Data Manager` | `helloworld.review_company_changes` |
+| Metadata editor | `Metadata Editor` | `helloworld.edit_metadata` |
+| Read-only user | none | none |
+
+A person can belong to several Groups. For example, Researcher plus Metadata Editor gives full data-entry access. Administrators can change a Group's permissions in Django Admin; the code checks only the permissions.
+
+Do not put "admin" in a Group name. `signals.py` ticks `staff` for members of any Group whose name contains it.
+
+After deploying this change, existing users who are not superusers have none of the new permissions. Add each one to the right Group.
 
 In Django Admin, the two company permissions belong to Company. The metadata permission belongs to Category and covers Create and Delete across all reference tables.
 
@@ -87,9 +105,11 @@ Clicking "Submit" at the bottom will add the company as a **Pending Change**. An
 
 To submit an edit or deletion, use the controls in the Companies table. HempDB sends every company addition, edit, and deletion through transaction approval.
 
+To add many companies at once, use `Databases > Companies > Import` to stage a CSV or XLSX file. The upload page previews the staged rows and marks names that already exist. `Submit All for Review` sends every row to the Changes view. `Submit Unique for Review` sends only rows whose names are new and discards the rest. `Cancel All` discards the upload. No uploaded company appears in the database until a reviewer approves it.
+
 ## Transaction Approvals
 
-All company transactions require review. Users with `helloworld.edit_companies` can see their own submissions in My Changes and open those submissions' details. Users with `helloworld.review_company_changes` can view all pending changes and approve or reject them.
+All company transactions require review. Users with `helloworld.edit_companies` can view every pending change and see their own submissions in My Changes. Only users with `helloworld.review_company_changes` see the Approve and Reject buttons.
 
 All currently pending changes will be listed here. One will find three types of changes: create, edit, deletion. As the names imply, they want to create, edit, delete a company, respectively. 
 
@@ -102,6 +122,8 @@ Each drop-down will nest more drop-downs, each relating to a company, if there a
 Each company drop-down will present a list that shows basic data about the change, such as the company name, the author of the change, and a timestamp.
 
 These changes are sorted with the most recent being at the top of the list.
+
+Uploads awaiting review appear in a table above the drop-downs, with the uploader, the submission time, and the number of companies. `Approve upload` publishes every still-pending company in that upload. `Reject upload` rejects them. Each uploaded company is also listed under Create Changes, so a reviewer can decide individual rows first; the upload buttons then apply only to the rows left.
 
 To approve or reject the proposed change, a user with `helloworld.review_company_changes` opens the highlighted URL in the change list.
 
@@ -126,7 +148,7 @@ If a user would like to receive these emails, they can follow these steps:
   * If you do not see `Admin` in this dropdown, contact someone with `staff` status to do the remaining steps for you.
 3. Once in the Django admin portal, click `Users` on the left.
 4. Click the name of the user. Emails will be sent to the email associated with this user's account.
-5. Under User permissions, assign `Helloworld | company | Can review company changes`.
+5. Under Groups, add the user to `Data Manager`. Or, under User permissions, assign `Hemp DB | Company | Can review company changes`.
 6. Click `Save` at the bottom of this page.
 
 **Important:** These emails may first arrive in the Junk/Spam folder; from there you can trust the sender. Emails may also take up to 5 minutes to send from when the change is created.

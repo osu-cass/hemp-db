@@ -25,7 +25,7 @@
         <li class="nav-item">
           <a class="nav-link link-light px-3 text-light" href="/map">Map</a>
         </li>
-        {% if perms.helloworld.review_company_changes %}
+        {% if perms.helloworld.edit_companies or perms.helloworld.review_company_changes %}
           <li class="nav-item">
             <a class="nav-link link-light px-3 text-light" href="/changes">Changes</a>
           </li>
@@ -45,7 +45,7 @@
             {% if user.is_active and user.is_staff %}
               <a class="dropdown-item" href="/admin">Admin</a>
             {% endif %}
-            {% if perms.helloworld.review_company_changes %}
+            {% if perms.helloworld.edit_companies or perms.helloworld.review_company_changes %}
               <a class="dropdown-item" href="/changes">Changes</a>
             {% endif %}
             {% if perms.helloworld.edit_companies %}
