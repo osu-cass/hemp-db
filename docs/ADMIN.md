@@ -52,6 +52,30 @@ After deploying this change, existing users who are not superusers have none of 
 
 In Django Admin, the two company permissions belong to Company. The metadata permission belongs to Category and covers Create and Delete across all reference tables.
 
+### Local permission test users
+
+The local seed command creates one account for each role, a few role combinations, and the two Django admin boundaries. It needs no CSV data. Run migrations first, because it adds users to the Groups that `0021_role_groups` creates:
+
+```sh
+docker compose exec app python manage.py seed_test_users
+```
+
+This command refuses to run unless `DEBUG=true`. Every account uses the password from `DEV_SEED_PASSWORD`, which defaults to `hempdb-dev` for local development.
+
+| Username | Groups or flags | Expected access |
+|---|---|---|
+| `test_superuser` | Staff and Superuser | Full application and admin access |
+| `test_staff` | Staff | Can enter Admin but has no application permissions |
+| `test_editor` | Researcher | Company proposals, uploads for review, My Changes, and the Changes list without Approve |
+| `test_reviewer` | Data Manager | Changes list with Approve and Reject; no uploads |
+| `test_metadata_editor` | Metadata Editor | Create and delete reference-table values |
+| `test_editor_metadata` | Researcher, Metadata Editor | Both sets of access |
+| `test_editor_reviewer` | Researcher, Data Manager | Submit and approve company changes |
+| `test_all_roles` | All three roles | Every application workflow without Admin |
+| `test_readonly` | none | Signed-in viewing and export of all database tables |
+
+Rerunning the command restores these accounts to the declared flags, Group memberships, active state, and shared password, and removes direct permissions. It does not change other users or the Groups' permissions.
+
 ## User Management: Django Admin Portal
 
 Once logged in, staff users have the ability to access Django's admin portal by clicking on the "Admin" link in the username dropdown.
