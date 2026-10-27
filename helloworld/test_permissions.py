@@ -28,7 +28,7 @@ from .models import (
     UploadIndex,
     stakeholderGroups,
 )
-from .notifications import email_admins
+from .notifications import email_admins, email_upload_reviewers
 from .permissions import (
     EDIT_COMPANIES,
     EDIT_METADATA,
@@ -250,11 +250,11 @@ class PermissionWorkflowTests(TestCase):
         change = self._pending_change()
         expectations = (
             (self.unprivileged, False, False, False, False, False),
-            (self.editor, False, True, True, True, False),
+            (self.editor, True, True, True, True, False),
             (self.reviewer, True, True, False, False, True),
             (self.metadata_editor, False, False, False, False, False),
             (self.edit_reviewer, True, True, True, True, True),
-            (self.edit_metadata_editor, False, False, True, True, False),
+            (self.edit_metadata_editor, True, True, True, True, False),
             (self.review_metadata_editor, True, True, False, False, True),
             (self.combined, True, True, True, True, True),
             (self.staff, False, False, False, False, False),
@@ -300,7 +300,7 @@ class PermissionWorkflowTests(TestCase):
         pending_url = reverse("company-view-pending", args=[change.pk])
 
         self.client.force_login(self.editor)
-        self.assertEqual(self.client.get(reverse("changes")).status_code, 403)
+        self.assertEqual(self.client.get(reverse("changes")).status_code, 200)
         self.assertEqual(self.client.get(reverse("my_changes")).status_code, 200)
         self.assertEqual(self.client.get(pending_url).status_code, 200)
         self.assertEqual(self.client.get(reverse("upload-wizard")).status_code, 200)
@@ -314,12 +314,12 @@ class PermissionWorkflowTests(TestCase):
             author=self.edit_metadata_editor,
             name="Another editor's pending company",
         )
-        self.assertEqual(
-            self.client.get(
-                reverse("company-view-pending", args=[other_change.pk])
-            ).status_code,
-            403,
+        other_response = self.client.get(
+            reverse("company-view-pending", args=[other_change.pk])
         )
+        self.assertEqual(other_response.status_code, 200)
+        self.assertNotContains(other_response, "Approve")
+        self.assertNotContains(other_response, "Reject")
 
         self.client.force_login(self.reviewer)
         response = self.client.get(pending_url)
@@ -467,8 +467,20 @@ class PermissionWorkflowTests(TestCase):
                 )
         self.assertEqual(self.client.post(reverse("upload"), {}).status_code, 403)
 
-    def test_editor_can_finish_a_staged_upload(self):
-        """Allow an editor to promote staged uploads into companies."""
+    def _submitted_upload(self, *names):
+        """Stage companies and submit them for review as the editor."""
+        for name in names:
+            staged = PendingCompany.objects.create(
+                SrcKey="", Name=name, Address="", Country="USA"
+            )
+            UploadIndex.objects.create(pendingID=str(staged.pk))
+        self.client.force_login(self.editor)
+        with patch("helloworld.views.email_upload_reviewers"):
+            self.client.post(reverse("upload-wizard"), {"add-all": "1"})
+        return PendingChanges.objects.latest("pk").upload_batch
+
+    def test_finished_upload_waits_for_review(self):
+        """Queue an editor's finished upload instead of publishing it."""
         staged = PendingCompany.objects.create(
             SrcKey="", Name="Finished upload", Address="", Country="USA"
         )
@@ -478,14 +490,78 @@ class PermissionWorkflowTests(TestCase):
         client.get(reverse("upload-wizard"))
         csrf_token = client.cookies["csrftoken"].value
 
-        response = client.post(
-            reverse("upload-wizard"),
-            {"add-all": "1", "csrfmiddlewaretoken": csrf_token},
-        )
+        with patch("helloworld.views.email_upload_reviewers"):
+            response = client.post(
+                reverse("upload-wizard"),
+                {"add-all": "1", "csrfmiddlewaretoken": csrf_token},
+            )
 
         self.assertEqual(response.status_code, 302)
-        self.assertTrue(Company.objects.filter(Name="Finished upload").exists())
+        self.assertFalse(Company.objects.filter(Name="Finished upload").exists())
+        change = PendingChanges.objects.get(pending_company=staged)
+        self.assertEqual(change.author, self.editor)
+        self.assertEqual(change.changeType, "create")
+        self.assertEqual(change.status, PendingChanges.PendingStatus.PENDING)
         self.assertFalse(UploadIndex.objects.exists())
+
+    def test_only_reviewers_see_and_use_upload_batch_decisions(self):
+        """Show batch approve and reject only to reviewers and enforce it on POST."""
+        approve_batch = self._submitted_upload("Batch approve one", "Batch approve two")
+        reject_batch = self._submitted_upload("Batch reject")
+        approve_url = reverse("upload-batch-approve", args=[approve_batch])
+        reject_url = reverse("upload-batch-reject", args=[reject_batch])
+
+        for user in (self.editor, self.unprivileged, self.metadata_editor, self.staff):
+            with self.subTest(user=user.username):
+                self.client.force_login(user)
+                self.assertEqual(self.client.post(approve_url).status_code, 403)
+                self.assertEqual(self.client.post(reject_url).status_code, 403)
+        self.assertFalse(Company.objects.exists())
+
+        self.client.force_login(self.editor)
+        self.assertNotContains(self.client.get(reverse("changes")), approve_url)
+
+        self.client.force_login(self.reviewer)
+        changes_page = self.client.get(reverse("changes"))
+        self.assertContains(changes_page, approve_url)
+        self.assertContains(changes_page, reject_url)
+        self.assertContains(changes_page, self.editor.username)
+        self.assertEqual(self.client.get(approve_url).status_code, 405)
+
+        self.assertRedirects(
+            self.client.post(approve_url), reverse("changes"), fetch_redirect_response=False
+        )
+        self.assertRedirects(
+            self.client.post(reject_url), reverse("changes"), fetch_redirect_response=False
+        )
+        self.assertCountEqual(
+            Company.objects.values_list("Name", flat=True),
+            ["Batch approve one", "Batch approve two"],
+        )
+        self.assertEqual(
+            set(
+                PendingChanges.objects.filter(upload_batch=reject_batch).values_list(
+                    "status", flat=True
+                )
+            ),
+            {PendingChanges.PendingStatus.REJECTED},
+        )
+        self.assertNotContains(self.client.get(reverse("changes")), approve_url)
+
+    def test_upload_batch_decisions_require_csrf(self):
+        """Retain CSRF checks for batch approval."""
+        batch = self._submitted_upload("CSRF batch")
+        client = Client(enforce_csrf_checks=True)
+        client.force_login(self.reviewer)
+        client.get(reverse("changes"))
+        csrf_token = client.cookies["csrftoken"].value
+        approve_url = reverse("upload-batch-approve", args=[batch])
+
+        self.assertEqual(client.post(approve_url).status_code, 403)
+        self.assertEqual(
+            client.post(approve_url, {"csrfmiddlewaretoken": csrf_token}).status_code,
+            302,
+        )
 
     def test_approval_and_metadata_writes_require_csrf(self):
         """Retain CSRF checks for approval and reference-table mutations."""
@@ -608,9 +684,15 @@ class PermissionWorkflowTests(TestCase):
         )
 
         email_admins("created", "Pending company", 1, "testserver")
+        email_upload_reviewers(3, "testserver")
 
-        recipients = set(send_mail.call_args.kwargs["recipient_list"])
-        self.assertEqual(recipients, {"reviewer@example.test", "superuser@example.test"})
+        self.assertEqual(send_mail.call_count, 2)
+        for call in send_mail.call_args_list:
+            self.assertEqual(
+                set(call.kwargs["recipient_list"]),
+                {"reviewer@example.test", "superuser@example.test"},
+            )
+        self.assertIn("3 companies", send_mail.call_args.kwargs["message"])
         self.assertEqual(
             set(
                 users_with_application_permission(REVIEW_COMPANY_CHANGES)
@@ -641,7 +723,7 @@ class PermissionMigrationTests(TransactionTestCase):
     def tearDown(self):
         """Restore the database for tests that follow this migration check."""
         self.executor.loader.build_graph()
-        self.executor.migrate(self.migrate_to)
+        self.executor.migrate(self.executor.loader.graph.leaf_nodes("helloworld"))
         super().tearDown()
 
     def test_upgrade_keeps_historical_grants_without_new_grants(self):
@@ -693,3 +775,73 @@ class PermissionMigrationTests(TransactionTestCase):
                 self.assertFalse(permission.group_set.filter(pk=group.pk).exists())
                 self.assertFalse(direct_user.has_perm(f"helloworld.{codename}"))
                 self.assertFalse(grouped_user.has_perm(f"helloworld.{codename}"))
+
+
+class RoleGroupMigrationTests(TransactionTestCase):
+    """Check the role groups seeded for AB#4851."""
+
+    roles = {
+        "Researcher": {"edit_companies"},
+        "Data Manager": {"review_company_changes"},
+        "Metadata Editor": {"edit_metadata"},
+    }
+
+    def setUp(self):
+        """Move the test database to the state before the role groups."""
+        super().setUp()
+        self.executor = MigrationExecutor(connection)
+        self.executor.migrate([("helloworld", "0020_pendingchanges_upload_batch")])
+
+    def tearDown(self):
+        """Restore the latest schema for tests that follow."""
+        self.executor.loader.build_graph()
+        self.executor.migrate(self.executor.loader.graph.leaf_nodes("helloworld"))
+        super().tearDown()
+
+    def _migrate_forward(self):
+        """Apply the remaining migrations."""
+        self.executor.loader.build_graph()
+        self.executor.migrate(self.executor.loader.graph.leaf_nodes("helloworld"))
+
+    def test_upgrade_creates_each_role_with_only_its_permission(self):
+        """Create the three roles and grant each one permission."""
+        Group.objects.filter(name__in=self.roles).delete()
+        Permission.objects.filter(
+            content_type__app_label="helloworld",
+            codename__in=("edit_companies", "review_company_changes", "edit_metadata"),
+        ).delete()
+
+        self._migrate_forward()
+
+        for name, codenames in self.roles.items():
+            with self.subTest(role=name):
+                group = Group.objects.get(name=name)
+                self.assertEqual(
+                    set(group.permissions.values_list("codename", flat=True)), codenames
+                )
+
+    def test_upgrade_adds_the_permission_to_an_existing_role(self):
+        """Keep the members of a role an administrator already created."""
+        user = get_user_model().objects.create(username="member", is_active=True)
+        group = Group.objects.create(name="Researcher")
+        group.user_set.add(user)
+
+        self._migrate_forward()
+
+        group.refresh_from_db()
+        self.assertEqual(list(group.user_set.all()), [user])
+        self.assertTrue(
+            get_user_model().objects.get(pk=user.pk).has_perm("helloworld.edit_companies")
+        )
+
+    def test_joining_a_role_does_not_grant_staff(self):
+        """Keep role members out of Django Admin."""
+        self._migrate_forward()
+        for name, codenames in self.roles.items():
+            with self.subTest(role=name):
+                user = get_user_model().objects.create(username=name, is_active=True)
+                user.groups.add(Group.objects.get(name=name))
+                user = get_user_model().objects.get(pk=user.pk)
+                self.assertFalse(user.is_staff)
+                for codename in codenames:
+                    self.assertTrue(user.has_perm(f"helloworld.{codename}"))

@@ -266,6 +266,9 @@ class PendingChanges(models.Model):
 
     status = models.CharField(max_length=250, choices=PendingStatus.choices, default=PendingStatus.PENDING)
 
+    # Groups the create changes from one finished upload for batch review
+    upload_batch = models.UUIDField(null=True, blank=True, db_index=True, editable=False)
+
     class Meta:
         db_table = "pending_change"
 

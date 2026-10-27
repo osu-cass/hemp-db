@@ -33,11 +33,13 @@ from .models import Resources
 from .models import UploadIndex
 from .upload import (
     UploadValidationError,
-    approve_pending_companies,
+    approve_upload_batch,
     import_pending_companies,
     read_upload_dataframe,
+    reject_upload_batch,
+    submit_upload_for_review,
 )
-from .notifications import email_admins
+from .notifications import email_admins, email_upload_reviewers
 from .authentication import activate_email
 from django.shortcuts import render, redirect
 from django.contrib.auth import login, get_user_model
@@ -53,14 +55,13 @@ from django.utils.http import urlsafe_base64_decode
 from django.utils.encoding import force_str
 from django.contrib.auth.tokens import default_token_generator
 from django.core.cache import cache
-from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
+from django.template.defaultfilters import pluralize
 from django.conf import settings
 from .permissions import (
     EDIT_COMPANIES,
     EDIT_METADATA,
     REVIEW_COMPANY_CHANGES,
-    can_view_pending_change,
     require_any_application_permission,
     require_application_permission,
     require_post_permission,
@@ -82,19 +83,21 @@ UPLOAD_WIZARD_PAGE_SIZE = 100
 
 @require_application_permission(EDIT_COMPANIES)
 def upload_wizard(request: HttpRequest) -> HttpResponse:
-    """Review, finish, or cancel a staged company upload."""
+    """Preview a staged company upload, submit it for review, or cancel it."""
     index = UploadIndex.objects.values_list("pendingID", flat=True)
     companies = PendingCompany.objects.filter(pk__in=index).order_by("pk")
     message = ""
     if request.method == "POST":
-        # Add all companies
-        if "add-all" in request.POST:
-            approve_pending_companies(unique_only=False)
-            message = "Uploaded All Companies"
-        # Add only unique companies
-        elif "add-unique" in request.POST:
-            approve_pending_companies(unique_only=True)
-            message = "Uploaded Unique Companies"
+        # Submit all or only unique companies for review
+        if "add-all" in request.POST or "add-unique" in request.POST:
+            submitted = submit_upload_for_review(
+                request.user, unique_only="add-unique" in request.POST
+            )
+            if submitted:
+                email_upload_reviewers(submitted, request.get_host())
+            message = (
+                f"Submitted {submitted} compan{pluralize(submitted, 'y,ies')} for review"
+            )
         # Upload Nothing
         elif "cancel" in request.POST:
             companies.delete()
@@ -417,9 +420,7 @@ def view_company_pending(request: HttpRequest, id: int) -> HttpResponse:
     fields = []
 
     obj = PendingChanges.objects.get(id=id)
-    if not can_view_pending_change(request.user, obj):
-        raise PermissionDenied
-    
+
     if(obj.changeType == "edit"):
         company = obj.company
         pending_company = obj.pending_company
@@ -995,9 +996,9 @@ def export_industry(_request: HttpRequest) -> HttpResponse:
 
     return response
 
-@require_application_permission(REVIEW_COMPANY_CHANGES)
+@require_any_application_permission(EDIT_COMPANIES, REVIEW_COMPANY_CHANGES)
 def dbChanges(request: HttpRequest) -> HttpResponse:
-    """Show all pending company changes to reviewers."""
+    """Show all pending company changes to editors and reviewers."""
     
     # Edit Changes (linked to a Company object)
     edit_changes = (
@@ -1037,6 +1038,18 @@ def dbChanges(request: HttpRequest) -> HttpResponse:
         for company in delete_changes
     }
 
+    # Upload batches still awaiting review
+    upload_batches = (
+        PendingChanges.objects.filter(
+            changeType="create",
+            status=PendingChanges.PendingStatus.PENDING,
+            upload_batch__isnull=False,
+        )
+        .values("upload_batch", "author__username")
+        .annotate(company_count=models.Count("pk"), submitted_at=models.Min("created_at"))
+        .order_by("-submitted_at")
+    )
+
     # Prepare context with all three categories
     changes_list = {
         "edit_changes": edit_changes_dict,
@@ -1044,7 +1057,25 @@ def dbChanges(request: HttpRequest) -> HttpResponse:
         "delete_changes": delete_changes_dict,
     }
     
-    return render(request, 'companies_pending.html', {'changes_list': changes_list})
+    return render(
+        request,
+        'companies_pending.html',
+        {'changes_list': changes_list, 'upload_batches': upload_batches},
+    )
+
+@require_application_permission(REVIEW_COMPANY_CHANGES)
+@require_POST
+def upload_batch_approve(_request: HttpRequest, batch) -> HttpResponse:
+    """Approve every pending company in one upload batch."""
+    approve_upload_batch(batch)
+    return redirect('changes')
+
+@require_application_permission(REVIEW_COMPANY_CHANGES)
+@require_POST
+def upload_batch_reject(_request: HttpRequest, batch) -> HttpResponse:
+    """Reject every pending company in one upload batch."""
+    reject_upload_batch(batch)
+    return redirect('changes')
 
 @require_application_permission(EDIT_COMPANIES)
 def myChanges(request: HttpRequest) -> HttpResponse:
