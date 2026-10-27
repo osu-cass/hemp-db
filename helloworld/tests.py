@@ -1,6 +1,8 @@
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Permission
+from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase
 from django.urls import reverse
 
@@ -15,6 +17,7 @@ from .models import ProductGroup
 from .models import Grower
 from .models import Industry
 from .models import Status
+from .permissions import EDIT_COMPANIES
 
 class CategoryTestCase(TestCase):
     def setUp(self):
@@ -40,8 +43,9 @@ class SolutionTestCase(TestCase):
 
 class StakeholderGroupsTestCase(TestCase):
     def setUp(self):
-        stakeholderGroups.objects.create(stakeholderGroup="testGroup", category=1)
-        stakeholderGroups.objects.create(stakeholderGroup="anotherTestGroup", category=1)
+        category = Category.objects.create(category="testCategory")
+        stakeholderGroups.objects.create(stakeholderGroup="testGroup", category=category.pk)
+        stakeholderGroups.objects.create(stakeholderGroup="anotherTestGroup", category=category.pk)
 
     def test_groups_are_created(self):
         c1 = stakeholderGroups.objects.get(stakeholderGroup="testGroup")
@@ -146,8 +150,9 @@ class CompanyTestCase(TestCase):
             reviews="test",
         )
         c1.Solutions.add(Solution.objects.create(solution="testSolution"))
-        c1.Category.add(Category.objects.create(category="testCategory"))
-        c1.stakeholderGroup.add(stakeholderGroups.objects.create(stakeholderGroup="testStakeholderGroup", category=1))
+        category = Category.objects.create(category="testCategory")
+        c1.Category.add(category)
+        c1.stakeholderGroup.add(stakeholderGroups.objects.create(stakeholderGroup="testStakeholderGroup", category=category.pk))
         c1.Stage.add(Stage.objects.create(stage="testStage"))
         c1.productGroup.add(ProductGroup.objects.create(productGroup="testProductGroup"))
         
@@ -191,8 +196,9 @@ class CompanyTestCase(TestCase):
             reviews="test",
         )
         c2.Solutions.add(Solution.objects.create(solution="testSolution"))
-        c2.Category.add(Category.objects.create(category="testCategory"))
-        c2.stakeholderGroup.add(stakeholderGroups.objects.create(stakeholderGroup="testStakeholderGroup", category=1))
+        category = Category.objects.create(category="testCategory")
+        c2.Category.add(category)
+        c2.stakeholderGroup.add(stakeholderGroups.objects.create(stakeholderGroup="testStakeholderGroup", category=category.pk))
         c2.Stage.add(Stage.objects.create(stage="testStage"))
         c2.productGroup.add(ProductGroup.objects.create(productGroup="testProductGroup"))
 
@@ -244,8 +250,9 @@ class PendingCompanyTestCase(TestCase):
             reviews="test",
         )
         c1.Solutions.add(Solution.objects.create(solution="testSolution"))
-        c1.Category.add(Category.objects.create(category="testCategory"))
-        c1.stakeholderGroup.add(stakeholderGroups.objects.create(stakeholderGroup="testStakeholderGroup", category=1))
+        category = Category.objects.create(category="testCategory")
+        c1.Category.add(category)
+        c1.stakeholderGroup.add(stakeholderGroups.objects.create(stakeholderGroup="testStakeholderGroup", category=category.pk))
         c1.Stage.add(Stage.objects.create(stage="testStage"))
         c1.productGroup.add(ProductGroup.objects.create(productGroup="testProductGroup"))
         
@@ -289,8 +296,9 @@ class PendingCompanyTestCase(TestCase):
             reviews="test",
         )
         c2.Solutions.add(Solution.objects.create(solution="testSolution"))
-        c2.Category.add(Category.objects.create(category="testCategory"))
-        c2.stakeholderGroup.add(stakeholderGroups.objects.create(stakeholderGroup="testStakeholderGroup", category=1))
+        category = Category.objects.create(category="testCategory")
+        c2.Category.add(category)
+        c2.stakeholderGroup.add(stakeholderGroups.objects.create(stakeholderGroup="testStakeholderGroup", category=category.pk))
         c2.Stage.add(Stage.objects.create(stage="testStage"))
         c2.productGroup.add(ProductGroup.objects.create(productGroup="testProductGroup"))
 
@@ -310,6 +318,12 @@ class CompanyEditTestCase(TestCase):
             username="editor",
             password="test-password",
             is_staff=True,
+        )
+        self.user.user_permissions.add(
+            Permission.objects.get(
+                content_type=ContentType.objects.get_for_model(Company),
+                codename=EDIT_COMPANIES.rsplit(".", 1)[1],
+            )
         )
         self.industry = Industry.objects.create(industry="Test industry")
         self.status = Status.objects.create(status="Active")

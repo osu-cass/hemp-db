@@ -8,16 +8,15 @@
 {% block content %}
 
   <div class="btn-group" style="display: block;" role="group" aria-label="Button group with nested dropdown">
-    {% if perms.helloworld.add_industry %}
+    {% if perms.helloworld.edit_metadata %}
       <button type="button" class="btn btn-secondary rounded-pill mx-3 my-2 px-3" data-bs-toggle="modal" data-bs-target="#createModal">Create</button>
     {% endif %}
-    {% if perms.helloworld.view_industry %}
-      <a href="{% url 'export-industry' %}" class="btn btn-secondary rounded-pill mx-3 my-2 px-3">Export</a>
-    {% endif %}
+    <a href="{% url 'export-industry' %}" class="btn btn-secondary rounded-pill mx-3 my-2 px-3">Export</a>
   </div>
 
   {% include "table.html" %}
 
+  {% if perms.helloworld.edit_metadata %}
   <div class="modal" id="createModal">
     <div class="modal-dialog">
       <div class="modal-content">
@@ -38,4 +37,5 @@
       </div>
     </div>
   </div>
+  {% endif %}
 {% endblock %}

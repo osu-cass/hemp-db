@@ -1,12 +1,14 @@
 from django.core.mail import send_mail
 from django.conf import settings
-from django.contrib.auth.models import User, Group
+from django.template.defaultfilters import pluralize
+from django.utils.html import escape
+from .permissions import REVIEW_COMPANY_CHANGES, users_with_application_permission
 
 # Django Emails: https://docs.djangoproject.com/en/5.1/topics/email/
 
 def email_admins(action: str, company_name: str, pending_change_id: int, request_host: str) -> None:
     """
-    Sends an email notification to Admins and SrAdmins when a company has been created, edited, or deleted.
+    Send a notification to active pending-change reviewers.
 
     Note that if the company name is a part of the edit, the new name will appear in the email.
     
@@ -17,37 +19,54 @@ def email_admins(action: str, company_name: str, pending_change_id: int, request
     request_host (str): the host that made the request (e.g. 'hempdb.cass.oregonstate.edu')
     """
 
+    # Invalid action
+    if action not in ['created', 'edited', 'deleted']:
+        return
+
+    _email_reviewers(
+        f'[HempDB] Company {action} (Pending Review)',
+        f'A company called "{company_name}" has been {action} and is now pending review.',
+        request_host,
+    )
+
+
+def email_upload_reviewers(company_count: int, request_host: str) -> None:
+    """Notify active pending-change reviewers that an upload awaits review."""
+    _email_reviewers(
+        '[HempDB] Company upload (Pending Review)',
+        f'An upload of {company_count} compan{pluralize(company_count, "y,ies")} '
+        'is now pending review.',
+        request_host,
+    )
+
+
+def _email_reviewers(subject: str, summary: str, request_host: str) -> None:
+    """Send a pending-review summary to active reviewers from production or DEBUG."""
+
     # If DEBUG is True, this email will be logged to the console, NOT sent (settings.py)
     if not settings.DEBUG:                              # Email will be sent
         if settings.PRODUCTION_URL not in request_host: # Request wansn't made from prod
             return                                      # Don't send email
 
-    # Invalid action
-    if action not in ['created', 'edited', 'deleted']:
-        return
-
-    subject = f'[HempDB] Company {action} (Pending Review)'
-    
     # Plaintext
     text_message = f"""
-    A company called "{company_name}" has been {action} and is now pending review.
+    {summary}
     
     View pending changes at: {settings.EMAIL_LINK}/changes
     """
 
     # HTML (clickable links)
     html_message = f"""
-    <p>A company called "{company_name}" has been {action} and is now pending review.</p>
+    <p>{escape(summary)}</p>
     
     <p>View pending changes <a href="{settings.EMAIL_LINK}/changes">here</a>.</p>
     """
 
-    # Group IDs from auth_group containing 'admin' (case insensitive)
-    admin_groups = Group.objects.filter(name__icontains='admin')
-    admin_group_ids = admin_groups.values_list('id', flat=True)
-
-    # Get list of emails for all users that are some form of admin
-    admin_emails = list(User.objects.filter(groups__id__in=admin_group_ids).values_list('email', flat=True).distinct())
+    admin_emails = list(
+        users_with_application_permission(REVIEW_COMPANY_CHANGES)
+        .exclude(email="")
+        .values_list("email", flat=True)
+    )
 
     send_mail(
         subject=subject,
