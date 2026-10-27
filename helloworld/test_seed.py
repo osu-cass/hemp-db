@@ -131,6 +131,21 @@ class SeedUsersTests(TestCase):
         self.assertEqual(list(editor.groups.values_list("name", flat=True)), ["Researcher"])
         self.assertEqual(editor.get_all_permissions(), {"helloworld.edit_companies"})
 
+    def test_rerun_keeps_staff_after_leaving_an_admin_named_group(self):
+        """Apply the declared flags after group changes fire the staff signal."""
+        self._seed()
+        admin_group = Group.objects.create(name="Local admin")
+        for username in ("test_staff", "test_superuser"):
+            get_user_model().objects.get(username=username).groups.add(admin_group)
+
+        self._seed()
+
+        for username in ("test_staff", "test_superuser"):
+            with self.subTest(username=username):
+                user = get_user_model().objects.get(username=username)
+                self.assertTrue(user.is_staff)
+                self.assertFalse(user.groups.exists())
+
     def test_seed_requires_the_migrated_role_groups(self):
         """Fail clearly instead of creating its own role groups."""
         Group.objects.filter(name="Data Manager").delete()

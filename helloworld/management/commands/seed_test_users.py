@@ -58,6 +58,9 @@ class Command(BaseCommand):
         users = []
         for username, access in TEST_USERS.items():
             user, _ = user_model.objects.get_or_create(username=username)
+            # Group changes can toggle is_staff in signals.py, so save flags last.
+            user.user_permissions.clear()
+            user.groups.set([role_groups[name] for name in access["groups"]])
             user.is_active = True
             user.is_staff = access["is_staff"]
             user.is_superuser = access["is_superuser"]
@@ -65,8 +68,6 @@ class Command(BaseCommand):
             user.save(update_fields=[
                 "is_active", "is_staff", "is_superuser", "password",
             ])
-            user.user_permissions.clear()
-            user.groups.set([role_groups[name] for name in access["groups"]])
             users.append(username)
 
         self.stdout.write(self.style.SUCCESS(
