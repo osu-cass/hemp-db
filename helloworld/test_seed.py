@@ -5,8 +5,7 @@ from io import StringIO
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Permission
-from django.contrib.contenttypes.models import ContentType
+from django.contrib.auth.models import Group, Permission
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
@@ -27,8 +26,9 @@ class SeedUsersTests(TestCase):
         users = {
             username: get_user_model().objects.get(username=username)
             for username in (
-                "test_superuser", "test_staff", "test_editor",
-                "test_reviewer", "test_metadata_editor", "test_readonly",
+                "test_superuser", "test_staff", "test_editor", "test_reviewer",
+                "test_metadata_editor", "test_editor_metadata", "test_editor_reviewer",
+                "test_all_roles", "test_readonly",
             )
         }
 
@@ -50,6 +50,19 @@ class SeedUsersTests(TestCase):
                 "helloworld.review_company_changes",
             },
             "test_metadata_editor": {"helloworld.edit_metadata"},
+            "test_editor_metadata": {
+                "helloworld.edit_companies",
+                "helloworld.edit_metadata",
+            },
+            "test_editor_reviewer": {
+                "helloworld.edit_companies",
+                "helloworld.review_company_changes",
+            },
+            "test_all_roles": {
+                "helloworld.edit_companies",
+                "helloworld.review_company_changes",
+                "helloworld.edit_metadata",
+            },
             "test_readonly": set(),
         }
         for username, permissions in expected.items():
@@ -79,14 +92,17 @@ class SeedUsersTests(TestCase):
         self.assertFalse(staff.groups.exists())
 
     def test_seeded_accounts_can_access_their_workflows(self):
-        """Exercise the real upload and review gates with seeded accounts."""
+        """Exercise the real upload and Changes gates with seeded accounts."""
         self._seed()
-        for username, upload_status, review_status in (
+        for username, upload_status, changes_status in (
             ("test_superuser", 200, 200),
             ("test_staff", 403, 403),
-            ("test_editor", 200, 403),
+            ("test_editor", 200, 200),
             ("test_reviewer", 403, 200),
             ("test_metadata_editor", 403, 403),
+            ("test_editor_metadata", 200, 200),
+            ("test_editor_reviewer", 200, 200),
+            ("test_all_roles", 200, 200),
             ("test_readonly", 403, 403),
         ):
             with self.subTest(username=username):
@@ -95,23 +111,33 @@ class SeedUsersTests(TestCase):
                     self.client.get(reverse("upload-wizard")).status_code, upload_status
                 )
                 self.assertEqual(
-                    self.client.get(reverse("changes")).status_code, review_status
+                    self.client.get(reverse("changes")).status_code, changes_status
                 )
 
-    def test_rerun_replaces_legacy_group_grants(self):
-        """Replace old permission grants on existing seeded groups."""
+    def test_rerun_resets_role_memberships(self):
+        """Restore the declared roles when a seeded account drifts."""
         self._seed()
         editor = get_user_model().objects.get(username="test_editor")
-        legacy, _ = Permission.objects.get_or_create(
-            content_type=ContentType.objects.get(app_label="helloworld", model="company"),
-            codename="submit_company_change",
-            defaults={"name": "Legacy submission permission"},
+        editor.groups.add(Group.objects.get(name="Data Manager"))
+        editor.user_permissions.add(
+            Permission.objects.get(
+                content_type__app_label="helloworld", codename="edit_metadata"
+            )
         )
-        editor.groups.get().permissions.set([legacy])
-        editor.user_permissions.add(legacy)
+
         self._seed()
+
         editor = get_user_model().objects.get(pk=editor.pk)
+        self.assertEqual(list(editor.groups.values_list("name", flat=True)), ["Researcher"])
         self.assertEqual(editor.get_all_permissions(), {"helloworld.edit_companies"})
+
+    def test_seed_requires_the_migrated_role_groups(self):
+        """Fail clearly instead of creating its own role groups."""
+        Group.objects.filter(name="Data Manager").delete()
+
+        with self.assertRaisesMessage(CommandError, "run migrations first: Data Manager"):
+            self._seed()
+        self.assertFalse(Group.objects.filter(name="Data Manager").exists())
 
     @override_settings(DEBUG=False)
     def test_seed_refuses_to_run_outside_debug_mode(self):

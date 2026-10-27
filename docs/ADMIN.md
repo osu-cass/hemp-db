@@ -54,28 +54,27 @@ In Django Admin, the two company permissions belong to Company. The metadata per
 
 ### Local permission test users
 
-The local seed command can create one account for each access boundary without
-loading CSV data:
+The local seed command creates one account for each role, a few role combinations, and the two Django admin boundaries. It needs no CSV data. Run migrations first, because it adds users to the Groups that `0021_role_groups` creates:
 
 ```sh
 docker compose exec app python manage.py seed_test_users
 ```
 
-This command refuses to run unless `DEBUG=true`. All six accounts use the
-password from `DEV_SEED_PASSWORD`, which defaults to `hempdb-dev` for local
-development.
+This command refuses to run unless `DEBUG=true`. Every account uses the password from `DEV_SEED_PASSWORD`, which defaults to `hempdb-dev` for local development.
 
-| Username | Expected access |
-|---|---|
-| `test_superuser` | Active Staff and Superuser; full application and admin access |
-| `test_staff` | Active Staff; can enter Admin but has no model or application permissions |
-| `test_editor` | `edit_companies`: company proposals, My Changes, and uploads |
-| `test_reviewer` | `review_company_changes`: review pending company changes; no uploads |
-| `test_metadata_editor` | `edit_metadata`: create and delete reference-table values |
-| `test_readonly` | No permissions; signed-in viewing and export of all database tables |
+| Username | Groups or flags | Expected access |
+|---|---|---|
+| `test_superuser` | Staff and Superuser | Full application and admin access |
+| `test_staff` | Staff | Can enter Admin but has no application permissions |
+| `test_editor` | Researcher | Company proposals, uploads for review, My Changes, and the Changes list without Approve |
+| `test_reviewer` | Data Manager | Changes list with Approve and Reject; no uploads |
+| `test_metadata_editor` | Metadata Editor | Create and delete reference-table values |
+| `test_editor_metadata` | Researcher, Metadata Editor | Both sets of access |
+| `test_editor_reviewer` | Researcher, Data Manager | Submit and approve company changes |
+| `test_all_roles` | All three roles | Every application workflow without Admin |
+| `test_readonly` | none | Signed-in viewing and export of all database tables |
 
-Rerunning the command restores these accounts to the declared flags, groups,
-permissions, active state, and shared password. It does not change other users.
+Rerunning the command restores these accounts to the declared flags, Group memberships, active state, and shared password, and removes direct permissions. It does not change other users or the Groups' permissions.
 
 ## User Management: Django Admin Portal
 
