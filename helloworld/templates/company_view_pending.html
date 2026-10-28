@@ -12,8 +12,14 @@
     <hr />
     {% if user.is_staff and change.status == "P" %}
     <a type="button" class="btn btn-secondary rounded-pill mx-3 my-2 px-3" href="/changes"> Back </a>
-    <a type="button" class="btn btn-secondary rounded-pill mx-3 my-2 px-3" href="{% url 'company-pending-approve' change.id %}"> Approve </a>
-    <a type="button" class="btn btn-secondary rounded-pill mx-3 my-2 px-3" href="{% url 'company-pending-reject' change.id %}"> Reject </a>
+    <form method="post" action="{% url 'company-pending-approve' change.id %}" class="d-inline">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-secondary rounded-pill mx-3 my-2 px-3">Approve</button>
+    </form>
+    <form method="post" action="{% url 'company-pending-reject' change.id %}" class="d-inline">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-secondary rounded-pill mx-3 my-2 px-3">Reject</button>
+    </form>
     {% endif %}
 
     {% if change.changeType == "edit" %}
