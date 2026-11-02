@@ -66,4 +66,4 @@ print(last.message)
 
 ### CronAudit
 
-`CronAudit` runs the audit management command and emails the generated CSV to administrators. If audit generation fails, it logs the error and attempts to email the recipients. See [Auditing Database Entries](AUDIT.md) for configuration details.
+`CronAudit` runs the audit management command and attempts to email the generated CSV to users in the exact `Admin` group, plus `AUDIT_RECIPIENT` when configured. `AUDIT_RECIPIENT` defaults to `EMAIL_USER`. If audit processing or sending the report fails, the job logs the error and attempts to send a failure notification to the same recipients. See [Auditing Database Entries](AUDIT.md) for configuration details.

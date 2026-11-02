@@ -81,7 +81,7 @@ In addition to filtering and exporting, insights into the industry can be made g
 
 ![company map](docs/images/map.png)
 
-Above is the HempDB map that allows anyone to filter companies by any of their attributes and displays markers in heatmaps to see regional trends and density.
+Above is the HempDB map, where anyone can filter companies by industry, category, stakeholder group, stage, and product group. Nearby markers are clustered to show regional distribution and density.
 
 ### Target Audience
 
@@ -129,7 +129,7 @@ Open phpMyAdmin at <http://localhost:8081>. No production database, Gmail, or Se
 - See [DEVELOP.md](docs/DEVELOP.md) for local setup, development commands, and configuration overrides.
 - See [PRODUCTION.md](docs/PRODUCTION.md) for production container configuration and deployment operations.
 - User guides for public users and administrators are located in [USER.md](docs/USER.md) and [ADMIN.md](docs/ADMIN.md) respectively.
-- To submit a bug report or feature request, please create a new issue [here](https://github.com/osu-cass/hemp-db/issues).
+- We are not currently accepting public contributions or unsolicited pull requests, and we do not use GitHub Issues for bug reports or feature requests. The internal team manages tickets and development through Azure DevOps. See [Contributing](CONTRIBUTING.md) for the contribution policy.
 
 ## Service Architecture
 
