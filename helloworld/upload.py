@@ -361,19 +361,15 @@ def _lock_staged_upload():
     return [index_id for index_id, _ in rows], [pending_id for _, pending_id in rows]
 
 
-def _clear_staged_upload(index_ids, pending_ids):
-    """Delete the locked indexes and their pending companies.
+@transaction.atomic
+def cancel_pending_companies():
+    """Discard the locked staged upload without promoting it.
 
     An upload that committed after the lock keeps its indexes.
     """
+    index_ids, pending_ids = _lock_staged_upload()
     PendingCompany.objects.filter(pk__in=pending_ids).delete()
     UploadIndex.objects.filter(pk__in=index_ids).delete()
-
-
-@transaction.atomic
-def cancel_pending_companies():
-    """Discard the locked staged upload without promoting it."""
-    _clear_staged_upload(*_lock_staged_upload())
 
 
 def submit_upload_for_review(author, *, unique_only: bool) -> int:

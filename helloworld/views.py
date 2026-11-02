@@ -84,7 +84,7 @@ MAX_UNEXPECTED_ERROR_LENGTH = 300
 
 
 def unexpected_upload_message(error: Exception) -> str:
-    """Build the staff-facing message for an upload failure with no row context."""
+    """Build the uploader-facing message for an upload failure with no row context."""
     detail = str(error) or "no details"
     if len(detail) > MAX_UNEXPECTED_ERROR_LENGTH:
         detail = f"{detail[:MAX_UNEXPECTED_ERROR_LENGTH]}..."
