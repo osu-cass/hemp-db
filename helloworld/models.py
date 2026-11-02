@@ -61,6 +61,9 @@ class Category(models.Model):
 
     class Meta:
         db_table = "category"
+        permissions = (
+            ("edit_metadata", "Can create and delete HempDB reference-table values"),
+        )
 
         verbose_name = "Category"
         verbose_name_plural = "Categories"
@@ -235,6 +238,10 @@ class Company(CompanyDetail):
     class Meta:
         db_table = "company"
         indexes = [models.Index(fields=["Name"], name="company_name_idx")]
+        permissions = (
+            ("edit_companies", "Can submit company changes and manage uploads"),
+            ("review_company_changes", "Can review company changes"),
+        )
 
         verbose_name = "Company"
         verbose_name_plural = "Companies"
@@ -258,6 +265,9 @@ class PendingChanges(models.Model):
         REJECTED = "R", _("Rejected")
 
     status = models.CharField(max_length=250, choices=PendingStatus.choices, default=PendingStatus.PENDING)
+
+    # Groups the create changes from one finished upload for batch review
+    upload_batch = models.UUIDField(null=True, blank=True, db_index=True, editable=False)
 
     class Meta:
         db_table = "pending_change"

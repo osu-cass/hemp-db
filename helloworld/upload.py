@@ -10,7 +10,15 @@ from django.db import transaction
 from django.db.models import Exists, Min, OuterRef
 from django.utils import timezone
 
-from .models import Company, Grower, Industry, PendingCompany, Status, UploadIndex
+from .models import (
+    Company,
+    Grower,
+    Industry,
+    PendingChanges,
+    PendingCompany,
+    Status,
+    UploadIndex,
+)
 from .signals import invalidate_map_cache
 
 
@@ -213,8 +221,14 @@ def import_pending_companies(dataframe):
     return persisted
 
 
-def approve_pending_companies(*, unique_only: bool) -> int:
-    """Promote indexed pending companies and remove the upload staging rows."""
+def submit_upload_for_review(author, *, unique_only: bool) -> int:
+    """Queue indexed pending companies as one upload batch of create changes.
+
+    Rows left out by ``unique_only`` are discarded with the upload staging rows.
+
+    Returns:
+        The number of companies queued for review.
+    """
     with transaction.atomic():
         pending_ids = list(
             UploadIndex.objects.select_for_update().values_list(
@@ -243,21 +257,81 @@ def approve_pending_companies(*, unique_only: bool) -> int:
         else:
             pending = indexed_pending
 
-        pending_companies = list(pending)
+        submitted_ids = list(pending.values_list("pk", flat=True))
+        batch = uuid.uuid4()
+        PendingChanges.objects.bulk_create(
+            (
+                PendingChanges(
+                    pending_company_id=pending_id,
+                    changeType="create",
+                    author=author,
+                    upload_batch=batch,
+                )
+                for pending_id in submitted_ids
+            ),
+            batch_size=IMPORT_BATCH_SIZE,
+        )
+
+        PendingCompany.objects.filter(pk__in=pending_ids).exclude(
+            pk__in=submitted_ids
+        ).delete()
+        UploadIndex.objects.all().delete()
+        return len(submitted_ids)
+
+
+def _pending_batch_changes(batch):
+    """Lock and return the still-pending create changes of one upload batch."""
+    return list(
+        PendingChanges.objects.select_for_update()
+        .filter(
+            upload_batch=batch,
+            changeType="create",
+            status=PendingChanges.PendingStatus.PENDING,
+        )
+        .select_related("pending_company")
+        .order_by("pk")
+    )
+
+
+def approve_upload_batch(batch) -> int:
+    """Publish the pending companies of one upload batch.
+
+    Uploads stage concrete fields only, so no many-to-many values are copied.
+
+    Returns:
+        The number of companies created.
+    """
+    with transaction.atomic():
+        changes = _pending_batch_changes(batch)
+        if not changes:
+            return 0
+
         approval_time = timezone.now()
         companies = [
             Company(
-                **company.shared_concrete_field_values(
+                **change.pending_company.shared_concrete_field_values(
                     Company, excluded_fields={"lastUpdated"}
                 ),
                 lastUpdated=approval_time,
             )
-            for company in pending_companies
+            for change in changes
         ]
         Company.objects.bulk_create(companies, batch_size=IMPORT_BATCH_SIZE)
-
-        PendingCompany.objects.filter(pk__in=pending_ids).delete()
-        UploadIndex.objects.all().delete()
-        if companies:
-            transaction.on_commit(lambda: invalidate_map_cache(sender=Company))
+        PendingChanges.objects.filter(pk__in=[change.pk for change in changes]).update(
+            status=PendingChanges.PendingStatus.APPROVED
+        )
+        transaction.on_commit(lambda: invalidate_map_cache(sender=Company))
         return len(companies)
+
+
+def reject_upload_batch(batch) -> int:
+    """Reject the pending changes of one upload batch.
+
+    Returns:
+        The number of changes rejected.
+    """
+    with transaction.atomic():
+        changes = _pending_batch_changes(batch)
+        return PendingChanges.objects.filter(
+            pk__in=[change.pk for change in changes]
+        ).update(status=PendingChanges.PendingStatus.REJECTED)

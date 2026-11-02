@@ -85,6 +85,8 @@ urlpatterns = [
     path('reset/done/', auth_views.PasswordResetCompleteView.as_view(), name='password_reset_complete'),
 
     # Changes
-    path('changes/', views.dbChanges),
+    path('changes/', views.dbChanges, name='changes'),
+    path('changes/upload/<uuid:batch>/approve', views.upload_batch_approve, name='upload-batch-approve'),
+    path('changes/upload/<uuid:batch>/reject', views.upload_batch_reject, name='upload-batch-reject'),
     path('my_changes/', views.myChanges, name='my_changes'),
 ]
