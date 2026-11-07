@@ -1,4 +1,4 @@
-FROM python:3.12-slim-bookworm AS base
+FROM python:3.14-slim-bookworm AS base
 
 ARG APP_UID=1000
 ARG APP_GID=1000
@@ -11,7 +11,7 @@ WORKDIR /app
 
 RUN groupadd --gid "${APP_GID}" app \
     && useradd --uid "${APP_UID}" --gid app --create-home app
-RUN python -m pip install --no-cache-dir --upgrade pip==26.1.2
+RUN python -m pip install --no-cache-dir --upgrade pip==26.2.1
 
 COPY requirements.txt requirements-dev.txt requirements-production.txt ./
 
