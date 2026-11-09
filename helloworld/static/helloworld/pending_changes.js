@@ -1,4 +1,6 @@
 (() => {
+  // Waits before each automatic retry; the page gives up after the last one.
+  const RETRY_DELAYS_MS = [5000, 10000, 15000, 30000];
   const loaderStates = new WeakMap();
 
   function findOwned(loader, selector) {
@@ -20,67 +22,60 @@
 
   function getState(loader) {
     let state = loaderStates.get(loader);
-    if (state) {
-      return state;
+    if (!state) {
+      state = {
+        destination: findOwned(loader, "[data-pending-items]"),
+        sentinel: findOwned(loader, "[data-pending-sentinel]"),
+        status: findOwned(loader, "[data-pending-status]"),
+        keys: new Set(),
+        nextUrl: loader.dataset.nextUrl,
+        loading: false,
+        loaded: false,
+        failures: 0,
+        retryTimer: null,
+      };
+      loaderStates.set(loader, state);
     }
-
-    const destination = findOwned(loader, "[data-pending-items]");
-    state = {
-      destination,
-      keys: new Set(
-        Array.from(destination.children, (item) => item.dataset.pendingKey).filter(Boolean),
-      ),
-      nextUrl: loader.dataset.nextUrl,
-      loading: false,
-      loaded: false,
-      failed: false,
-    };
-    loaderStates.set(loader, state);
     return state;
   }
 
-  function getButton(loader) {
-    return findOwned(loader, "[data-pending-load]");
+  function canLoad(state) {
+    return Boolean(state.nextUrl) && !state.loading && state.retryTimer === null
+      && state.failures <= RETRY_DELAYS_MS.length;
   }
 
-  function setStatus(loader, message) {
-    findOwned(loader, "[data-pending-status]").textContent = message;
-  }
-
-  function updateControls(loader, state) {
-    const button = getButton(loader);
-    button.disabled = state.loading;
-    button.textContent = state.failed ? "Retry" : "Load more";
-    button.hidden = state.loaded && !state.nextUrl && !state.failed;
-    loader.setAttribute("aria-busy", state.loading ? "true" : "false");
-  }
-
-  function observeNextPage(loader, state) {
-    const button = getButton(loader);
-    if (
-      pageObserver
-      && state.nextUrl
-      && !state.loading
-      && !state.failed
-      && !button.hidden
-      && button.offsetParent !== null
-    ) {
-      pageObserver.observe(button);
+  // Re-observing makes the observer report the sentinel's current position,
+  // so a short page that leaves it on screen still triggers the next load.
+  function watch(state) {
+    pageObserver.unobserve(state.sentinel);
+    if (canLoad(state) && state.sentinel.offsetParent !== null) {
+      pageObserver.observe(state.sentinel);
     }
+  }
+
+  function scheduleRetry(loader, state) {
+    const delay = RETRY_DELAYS_MS[state.failures - 1];
+    if (delay === undefined) {
+      state.status.textContent = "Couldn't load more. Reload the page to try again.";
+      return;
+    }
+    state.status.textContent = `Couldn't load. Retrying in ${delay / 1000} seconds...`;
+    state.retryTimer = setTimeout(() => {
+      state.retryTimer = null;
+      loadPage(loader);
+    }, delay);
   }
 
   async function loadPage(loader) {
     const state = getState(loader);
-    if (state.loading || !state.nextUrl) {
+    if (!canLoad(state)) {
       return;
     }
 
-    const button = getButton(loader);
-    pageObserver?.unobserve(button);
+    pageObserver.unobserve(state.sentinel);
     state.loading = true;
-    state.failed = false;
-    setStatus(loader, loader.dataset.loadingMessage);
-    updateControls(loader, state);
+    state.status.textContent = loader.dataset.loadingMessage;
+    loader.setAttribute("aria-busy", "true");
 
     try {
       const response = await fetch(state.nextUrl, {
@@ -95,51 +90,47 @@
         await response.text(),
         "text/html",
       );
-      const template = fragment.querySelector("template[data-pending-items]");
-      const source = template?.content.querySelector(
-        "[data-pending-fragment-items]",
-      );
+      const source = fragment
+        .querySelector("template[data-pending-items]")
+        ?.content.querySelector("[data-pending-fragment-items]");
       const page = fragment.querySelector("[data-pending-page]");
       if (!source || !page) {
         throw new Error("Pending changes response was not a fragment.");
       }
 
+      // Rows can shift between pages while others review, so skip repeats.
       for (const item of Array.from(source.children)) {
         const key = item.dataset.pendingKey;
-        if (!key || state.keys.has(key)) {
-          continue;
+        if (key && !state.keys.has(key)) {
+          state.destination.append(item);
+          state.keys.add(key);
         }
-        state.destination.append(item);
-        state.keys.add(key);
       }
 
       state.nextUrl = page.dataset.nextUrl;
       state.loaded = true;
-      setStatus(
-        loader,
-        state.destination.children.length === 0 ? loader.dataset.emptyMessage : "",
-      );
+      state.failures = 0;
+      state.status.textContent = state.destination.children.length === 0
+        ? loader.dataset.emptyMessage
+        : "";
     } catch (error) {
-      state.failed = true;
-      setStatus(loader, "Unable to load this content. Try again.");
+      state.failures += 1;
       console.error(error);
+      scheduleRetry(loader, state);
     } finally {
       state.loading = false;
-      updateControls(loader, state);
-      observeNextPage(loader, state);
+      loader.setAttribute("aria-busy", "false");
+      watch(state);
     }
   }
 
-  const pageObserver = "IntersectionObserver" in window
-    ? new IntersectionObserver((entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting) {
-            const loader = entry.target.closest("[data-pending-loader]");
-            loadPage(loader);
-          }
-        }
-      }, { rootMargin: "1000px 0px" })
-    : null;
+  const pageObserver = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (entry.isIntersecting) {
+        loadPage(entry.target.closest("[data-pending-loader]"));
+      }
+    }
+  }, { rootMargin: "1000px 0px" });
 
   // Fetch while the open animation runs instead of after it.
   document.addEventListener("show.bs.collapse", (event) => {
@@ -152,22 +143,14 @@
   document.addEventListener("shown.bs.collapse", (event) => {
     const loader = getCollapseLoader(event.target);
     if (loader) {
-      observeNextPage(loader, getState(loader));
+      watch(getState(loader));
     }
   });
 
   document.addEventListener("hidden.bs.collapse", (event) => {
     const loader = getCollapseLoader(event.target);
     if (loader) {
-      pageObserver?.unobserve(getButton(loader));
+      pageObserver.unobserve(getState(loader).sentinel);
     }
-  });
-
-  document.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-pending-load]");
-    if (!button) {
-      return;
-    }
-    loadPage(button.closest("[data-pending-loader]"));
   });
 })();
