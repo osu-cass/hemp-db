@@ -3,17 +3,21 @@
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Permission
+from django.contrib.contenttypes.models import ContentType
+from django.db import connection
 from django.test import RequestFactory, TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
 from .models import Company, PendingChanges, PendingCompany
 from .pending_changes import (
-    InvalidCursor,
     get_category_counts,
     get_change_page,
     get_company_page,
 )
+from .permissions import EDIT_COMPANIES, REVIEW_COMPANY_CHANGES
 from .views import dbChanges, pending_change_companies, pending_company_changes
 
 
@@ -32,10 +36,15 @@ class PendingChangesTestBase(TestCase):
     @classmethod
     def setUpTestData(cls):
         """Create users shared by pending-change tests."""
-        cls.staff_user = get_user_model().objects.create_user(
+        cls.reviewer = get_user_model().objects.create_user(
             username="reviewer",
             password="test-password",
-            is_staff=True,
+        )
+        cls.reviewer.user_permissions.add(
+            Permission.objects.get(
+                content_type=ContentType.objects.get_for_model(Company),
+                codename=REVIEW_COMPANY_CHANGES.rsplit(".", 1)[1],
+            )
         )
         cls.regular_user = get_user_model().objects.create_user(
             username="reader",
@@ -106,13 +115,21 @@ class PendingChangeQueryTests(PendingChangesTestBase):
 
         self.assertEqual(counts, {"edit": 1, "create": 1, "delete": 1})
 
-    def test_company_pages_group_and_follow_category_ordering(self):
-        """Use company IDs for edits and newest timestamps for creates."""
-        first = self.create_company("First edit")
-        second = self.create_company("Second edit")
-        self.create_change("edit", company=second)
-        self.create_change("edit", company=first)
-        self.create_change("edit", company=first)
+    def test_company_pages_order_newest_change_first_in_every_category(self):
+        """Sort by newest pending change, breaking ties by higher company ID."""
+        older = self.create_company("Older edit")
+        newer = self.create_company("Newer edit")
+        older_change = self.create_change("edit", company=older)
+        self.create_change("edit", company=older)
+        newer_change = self.create_change("edit", company=newer)
+        base_time = timezone.now()
+        PendingChanges.objects.filter(company=older).update(
+            created_at=base_time - timedelta(minutes=2)
+        )
+        PendingChanges.objects.filter(id=older_change.id).update(
+            created_at=base_time - timedelta(minutes=3)
+        )
+        PendingChanges.objects.filter(id=newer_change.id).update(created_at=base_time)
 
         with self.assertNumQueries(1):
             edit_page = get_company_page("edit", page_size=1)
@@ -121,26 +138,21 @@ class PendingChangeQueryTests(PendingChangesTestBase):
                 "edit", edit_page.next_cursor, page_size=1
             )
 
-        self.assertEqual(edit_page.items[0].company_id, first.id)
-        self.assertEqual(edit_page.items[0].pending_count, 2)
-        self.assertEqual(next_edit_page.items[0].company_id, second.id)
+        self.assertEqual(edit_page.items[0].company_id, newer.id)
+        self.assertEqual(next_edit_page.items[0].company_id, older.id)
+        self.assertEqual(next_edit_page.items[0].pending_count, 2)
+        self.assertIsNone(next_edit_page.next_cursor)
 
         first_create = self.create_pending_company("First create")
         second_create = self.create_pending_company("Second create")
         newest_create = self.create_pending_company("Newest create")
-        first_change = self.create_change(
-            "create", pending_company=first_create
-        )
-        second_change = self.create_change(
-            "create", pending_company=second_create
-        )
-        newest_change = self.create_change(
-            "create", pending_company=newest_create
-        )
+        self.create_change("create", pending_company=first_create)
+        self.create_change("create", pending_company=second_create)
+        newest_change = self.create_change("create", pending_company=newest_create)
         tied_time = timezone.now() + timedelta(minutes=1)
-        PendingChanges.objects.filter(id__in=[first_change.id, second_change.id]).update(
-            created_at=tied_time
-        )
+        PendingChanges.objects.filter(
+            pending_company__in=[first_create, second_create]
+        ).update(created_at=tied_time)
         PendingChanges.objects.filter(id=newest_change.id).update(
             created_at=tied_time + timedelta(minutes=1)
         )
@@ -150,22 +162,33 @@ class PendingChangeQueryTests(PendingChangesTestBase):
             "create", create_page.next_cursor, page_size=2
         )
 
-        self.assertEqual(create_page.items[0].company_id, newest_create.id)
-        self.assertEqual(create_page.items[1].company_id, first_create.id)
-        self.assertEqual(next_create_page.items[0].company_id, second_create.id)
+        self.assertEqual(
+            [item.company_id for item in create_page.items],
+            [newest_create.id, second_create.id],
+        )
+        self.assertEqual(
+            [item.company_id for item in next_create_page.items],
+            [first_create.id],
+        )
 
+    def test_company_page_cursor_survives_review_between_pages(self):
+        """Skip companies reviewed after the previous page was loaded."""
         first_delete = self.create_company("First delete")
         second_delete = self.create_company("Second delete")
-        self.create_change("deletion", company=first_delete)
-        second_deletion = self.create_change("deletion", company=second_delete)
+        first_deletion = self.create_change("deletion", company=first_delete)
+        self.create_change("deletion", company=second_delete)
+        PendingChanges.objects.filter(id=first_deletion.id).update(
+            created_at=timezone.now() - timedelta(minutes=1)
+        )
+
         delete_page = get_company_page("delete", page_size=1)
-        second_deletion.status = PendingChanges.PendingStatus.APPROVED
-        second_deletion.save(update_fields=["status"])
+        first_deletion.status = PendingChanges.PendingStatus.APPROVED
+        first_deletion.save(update_fields=["status"])
         next_delete_page = get_company_page(
             "delete", delete_page.next_cursor, page_size=1
         )
 
-        self.assertEqual(delete_page.items[0].company_id, first_delete.id)
+        self.assertEqual(delete_page.items[0].company_id, second_delete.id)
         self.assertEqual(next_delete_page.items, [])
 
     def test_change_pages_are_pending_only_and_survive_review_between_pages(self):
@@ -198,16 +221,11 @@ class PendingChangeQueryTests(PendingChangesTestBase):
         self.assertEqual([change.id for change in next_page.items], [oldest.id])
         self.assertIsNone(next_page.next_cursor)
 
-    def test_cursor_cannot_be_reused_for_another_result_set(self):
-        """Reject a cursor for another category."""
-        company = self.create_company("Cursor company")
-        another_company = self.create_company("Another company")
-        self.create_change("edit", company=company)
-        self.create_change("edit", company=another_company)
-        page = get_company_page("edit", page_size=1)
-
-        with self.assertRaises(InvalidCursor):
-            get_company_page("delete", page.next_cursor, page_size=1)
+    def test_malformed_cursors_raise_value_error(self):
+        """Reject cursors without an aware timestamp and numeric ID."""
+        for cursor in ("invalid", "2026-01-01T00:00:00_1", "2026-01-01T00:00:00+00:00_x"):
+            with self.subTest(cursor=cursor), self.assertRaises(ValueError):
+                get_company_page("edit", cursor)
 
 
 class PendingChangeFragmentTests(PendingChangesTestBase):
@@ -217,29 +235,30 @@ class PendingChangeFragmentTests(PendingChangesTestBase):
         """Create a request factory for query-count assertions."""
         self.factory = RequestFactory()
 
-    def staff_request(self, path: str):
-        """Build a GET request from the staff reviewer."""
+    def reviewer_request(self, path: str):
+        """Build a GET request from the reviewer."""
         request = self.factory.get(path)
-        request.user = self.staff_user
+        request.user = self.reviewer
+        # Warm the permission cache so query counts cover only the view.
+        request.user.get_all_permissions()
         return request
 
     def test_initial_page_contains_counts_but_no_company_or_change_rows(self):
         """Keep the initial response to the shell and category counts."""
         company = self.create_company("Initial edit")
         self.create_change("edit", company=company)
-        request = self.staff_request("/changes/")
-        # Warm the permission cache used by master.html.
-        self.staff_user.get_all_permissions()
+        request = self.reviewer_request("/changes/")
 
-        with self.assertNumQueries(1):
+        # Category counts and upload batches.
+        with self.assertNumQueries(2):
             response = dbChanges(request)
 
         self.assertContains(response, "Edit Changes (1)")
         self.assertNotContains(response, "Initial edit")
         self.assertNotContains(response, "data-pending-key")
 
-    def test_fragment_endpoints_require_staff_and_get(self):
-        """Redirect nonstaff users and reject non-GET staff requests."""
+    def test_fragment_endpoints_require_permission_and_get(self):
+        """Redirect anonymous users, deny unprivileged ones, and allow only GET."""
         companies_url = reverse("pending-change-companies", args=["edit"])
         changes_url = reverse(
             "pending-company-changes", args=["edit", 1]
@@ -247,8 +266,8 @@ class PendingChangeFragmentTests(PendingChangesTestBase):
 
         self.assertEqual(self.client.get(companies_url).status_code, 302)
         self.client.force_login(self.regular_user)
-        self.assertEqual(self.client.get(changes_url).status_code, 302)
-        self.client.force_login(self.staff_user)
+        self.assertEqual(self.client.get(changes_url).status_code, 403)
+        self.client.force_login(self.reviewer)
         self.assertEqual(self.client.post(companies_url).status_code, 405)
         self.assertEqual(self.client.post(changes_url).status_code, 405)
 
@@ -276,7 +295,7 @@ class PendingChangeFragmentTests(PendingChangesTestBase):
                 for company in companies
             ]
         )
-        request = self.staff_request(
+        request = self.reviewer_request(
             reverse("pending-change-companies", args=["edit"])
         )
 
@@ -309,7 +328,7 @@ class PendingChangeFragmentTests(PendingChangesTestBase):
                 )
             ]
         )
-        request = self.staff_request(
+        request = self.reviewer_request(
             reverse("pending-company-changes", args=["edit", company.id])
         )
 
@@ -327,8 +346,8 @@ class PendingChangeFragmentTests(PendingChangesTestBase):
 
     def test_invalid_category_and_cursor_return_bad_request(self):
         """Return HTTP 400 for invalid fragment inputs."""
-        unknown_request = self.staff_request("/changes/unknown/companies/")
-        invalid_cursor_request = self.staff_request(
+        unknown_request = self.reviewer_request("/changes/unknown/companies/")
+        invalid_cursor_request = self.reviewer_request(
             "/changes/edit/companies/?cursor=invalid"
         )
 
@@ -340,3 +359,34 @@ class PendingChangeFragmentTests(PendingChangesTestBase):
             pending_change_companies(invalid_cursor_request, "edit").status_code,
             400,
         )
+
+
+class MyChangesQueryTests(PendingChangesTestBase):
+    """Verify the author's change list does not query per row."""
+
+    def test_query_count_does_not_grow_with_changes(self):
+        """Load company names in the list query."""
+        self.author.user_permissions.add(
+            Permission.objects.get(
+                content_type=ContentType.objects.get_for_model(Company),
+                codename=EDIT_COMPANIES.rsplit(".", 1)[1],
+            )
+        )
+        self.client.force_login(self.author)
+
+        def count_queries():
+            with CaptureQueriesContext(connection) as queries:
+                response = self.client.get(reverse("my_changes"))
+            self.assertEqual(response.status_code, 200)
+            return len(queries)
+
+        self.create_change("edit", company=self.create_company("Edit 1"))
+        self.create_change("create", pending_company=self.create_pending_company("New 1"))
+        baseline = count_queries()
+        for index in range(2, 5):
+            self.create_change("edit", company=self.create_company(f"Edit {index}"))
+            self.create_change(
+                "create", pending_company=self.create_pending_company(f"New {index}")
+            )
+
+        self.assertEqual(count_queries(), baseline)

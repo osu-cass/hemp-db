@@ -1,10 +1,8 @@
-"""Queries and cursors for progressively loaded pending changes."""
+"""Queries and keyset pages for progressively loaded pending changes."""
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Generic, TypeVar
 
-from django.core import signing
 from django.db.models import Count, Max, Min, Q
 from django.utils.dateparse import parse_datetime
 
@@ -12,7 +10,6 @@ from .models import PendingChanges
 
 
 PAGE_SIZE = 100
-_CURSOR_SALT = "helloworld.pending-changes"
 
 
 @dataclass(frozen=True)
@@ -21,6 +18,11 @@ class PendingCategory:
 
     change_type: str
     company_relation: str
+
+    @property
+    def company_id_field(self) -> str:
+        """Return the foreign-key column for this category's company."""
+        return f"{self.company_relation}_id"
 
 
 CATEGORIES = {
@@ -39,19 +41,12 @@ class CompanySummary:
     pending_count: int
 
 
-Item = TypeVar("Item")
-
-
 @dataclass(frozen=True)
-class PendingPage(Generic[Item]):
+class PendingPage:
     """Hold one bounded result page and its next cursor."""
 
-    items: list[Item]
+    items: list
     next_cursor: str | None
-
-
-class InvalidCursor(ValueError):
-    """Indicate that a pending-change cursor cannot be used."""
 
 
 def get_category(category: str) -> PendingCategory:
@@ -64,25 +59,17 @@ def get_category(category: str) -> PendingCategory:
 
 def get_category_counts() -> dict[str, int]:
     """Count companies with pending changes in each category."""
-    pending = PendingChanges.objects.filter(
+    return PendingChanges.objects.filter(
         status=PendingChanges.PendingStatus.PENDING
-    )
-    return pending.aggregate(
-        edit=Count(
-            "company_id",
-            filter=Q(changeType=CATEGORIES["edit"].change_type),
-            distinct=True,
-        ),
-        create=Count(
-            "pending_company_id",
-            filter=Q(changeType=CATEGORIES["create"].change_type),
-            distinct=True,
-        ),
-        delete=Count(
-            "company_id",
-            filter=Q(changeType=CATEGORIES["delete"].change_type),
-            distinct=True,
-        ),
+    ).aggregate(
+        **{
+            name: Count(
+                config.company_id_field,
+                filter=Q(changeType=config.change_type),
+                distinct=True,
+            )
+            for name, config in CATEGORIES.items()
+        }
     )
 
 
@@ -104,52 +91,31 @@ def get_company_page(
     category: str,
     cursor: str | None = None,
     page_size: int = PAGE_SIZE,
-) -> PendingPage[CompanySummary]:
+) -> PendingPage:
     """Return one page of company summaries, newest pending change first."""
     config = get_category(category)
-    relation_id = f"{config.company_relation}_id"
-    relation_name = f"{config.company_relation}__Name"
+    id_field = config.company_id_field
+    name_field = f"{config.company_relation}__Name"
     queryset = (
         PendingChanges.objects.filter(
             changeType=config.change_type,
             status=PendingChanges.PendingStatus.PENDING,
-            **{f"{relation_id}__isnull": False},
+            **{f"{id_field}__isnull": False},
         )
-        .values(relation_id, relation_name)
+        .values(id_field, name_field)
         .annotate(pending_count=Count("id"), newest_change_at=Max("created_at"))
     )
-    if cursor:
-        cursor_data = _decode_cursor(cursor, "companies", category)
-        created_at = _parse_cursor_datetime(cursor_data, "created_at")
-        company_id = _parse_cursor_int(cursor_data, "company_id")
-        queryset = queryset.filter(
-            Q(newest_change_at__lt=created_at)
-            | Q(newest_change_at=created_at, **{f"{relation_id}__gt": company_id})
-        )
-    queryset = queryset.order_by("-newest_change_at", relation_id)
-
-    rows = list(queryset[: page_size + 1])
-    page_rows = rows[:page_size]
+    rows = list(
+        _after_cursor(queryset, cursor, "newest_change_at", id_field)
+        .order_by("-newest_change_at", f"-{id_field}")[: page_size + 1]
+    )
+    rows, next_cursor = _split_page(
+        rows, page_size, lambda row: (row["newest_change_at"], row[id_field])
+    )
     summaries = [
-        CompanySummary(
-            company_id=row[relation_id],
-            company_name=row[relation_name],
-            pending_count=row["pending_count"],
-        )
-        for row in page_rows
+        CompanySummary(row[id_field], row[name_field], row["pending_count"])
+        for row in rows
     ]
-    next_cursor = None
-    if len(rows) > page_size:
-        last_row = page_rows[-1]
-        next_cursor = _encode_cursor(
-            "companies",
-            category,
-            {
-                "company_id": last_row[relation_id],
-                "created_at": last_row["newest_change_at"].isoformat(),
-            },
-        )
-
     return PendingPage(summaries, next_cursor)
 
 
@@ -158,88 +124,50 @@ def get_change_page(
     company_id: int,
     cursor: str | None = None,
     page_size: int = PAGE_SIZE,
-) -> PendingPage[PendingChanges]:
-    """Return one ordered page of pending changes for a company."""
+) -> PendingPage:
+    """Return one page of a company's pending changes, newest first."""
     config = get_category(category)
-    relation_id = f"{config.company_relation}_id"
     queryset = PendingChanges.objects.filter(
         changeType=config.change_type,
         status=PendingChanges.PendingStatus.PENDING,
-        **{relation_id: company_id},
+        **{config.company_id_field: company_id},
     )
-    if cursor:
-        cursor_data = _decode_cursor(cursor, "changes", category, company_id)
-        created_at = _parse_cursor_datetime(cursor_data, "created_at")
-        change_id = _parse_cursor_int(cursor_data, "change_id")
-        queryset = queryset.filter(
-            Q(created_at__lt=created_at)
-            | Q(created_at=created_at, id__lt=change_id)
-        )
-
     changes = list(
-        queryset.select_related("author")
+        _after_cursor(queryset, cursor, "created_at", "id")
+        .select_related("author")
         .only("id", "changeType", "created_at", "author_id", "author__username")
         .order_by("-created_at", "-id")[: page_size + 1]
     )
-    page_changes = changes[:page_size]
-    next_cursor = None
-    if len(changes) > page_size:
-        last_change = page_changes[-1]
-        next_cursor = _encode_cursor(
-            "changes",
-            category,
-            {
-                "company_id": company_id,
-                "created_at": last_change.created_at.isoformat(),
-                "change_id": last_change.id,
-            },
-        )
-
-    return PendingPage(page_changes, next_cursor)
+    changes, next_cursor = _split_page(
+        changes, page_size, lambda change: (change.created_at, change.id)
+    )
+    return PendingPage(changes, next_cursor)
 
 
-def _encode_cursor(kind: str, category: str, values: dict) -> str:
-    """Sign cursor values for a specific result set."""
-    return signing.dumps(
-        {"kind": kind, "category": category, **values},
-        salt=_CURSOR_SALT,
-        compress=True,
+def _after_cursor(queryset, cursor: str | None, time_field: str, id_field: str):
+    """Keep rows that sort after the cursor in (time, id) descending order."""
+    if not cursor:
+        return queryset
+    timestamp, row_id = _decode_cursor(cursor)
+    return queryset.filter(
+        Q(**{f"{time_field}__lt": timestamp})
+        | Q(**{time_field: timestamp, f"{id_field}__lt": row_id})
     )
 
 
-def _decode_cursor(
-    cursor: str,
-    kind: str,
-    category: str,
-    company_id: int | None = None,
-) -> dict:
-    """Validate and decode a cursor for a specific result set."""
-    try:
-        data = signing.loads(cursor, salt=_CURSOR_SALT)
-    except (signing.BadSignature, TypeError) as error:
-        raise InvalidCursor("Invalid pending-change cursor.") from error
-
-    if not isinstance(data, dict):
-        raise InvalidCursor("Invalid pending-change cursor.")
-    if data.get("kind") != kind or data.get("category") != category:
-        raise InvalidCursor("Cursor does not match this result set.")
-    if company_id is not None and data.get("company_id") != company_id:
-        raise InvalidCursor("Cursor does not match this company.")
-    return data
+def _split_page(rows: list, page_size: int, cursor_key) -> tuple[list, str | None]:
+    """Drop the look-ahead row and build the next cursor when one exists."""
+    if len(rows) <= page_size:
+        return rows, None
+    rows = rows[:page_size]
+    timestamp, row_id = cursor_key(rows[-1])
+    return rows, f"{timestamp.isoformat()}_{row_id}"
 
 
-def _parse_cursor_int(data: dict, key: str) -> int:
-    """Read a positive integer from decoded cursor data."""
-    value = data.get(key)
-    if not isinstance(value, int) or value < 1:
-        raise InvalidCursor("Invalid pending-change cursor.")
-    return value
-
-
-def _parse_cursor_datetime(data: dict, key: str) -> datetime:
-    """Read an aware datetime from decoded cursor data."""
-    value = data.get(key)
-    parsed = parse_datetime(value) if isinstance(value, str) else None
-    if parsed is None or parsed.tzinfo is None:
-        raise InvalidCursor("Invalid pending-change cursor.")
-    return parsed
+def _decode_cursor(cursor: str) -> tuple[datetime, int]:
+    """Parse a ``<iso timestamp>_<id>`` cursor or raise ValueError."""
+    timestamp, _, row_id = cursor.rpartition("_")
+    parsed = parse_datetime(timestamp)
+    if parsed is None or parsed.tzinfo is None or not row_id.isdecimal():
+        raise ValueError("Invalid pending-change cursor.")
+    return parsed, int(row_id)

@@ -138,21 +138,22 @@
             loadPage(loader);
           }
         }
-      }, { rootMargin: "200px 0px" })
+      }, { rootMargin: "1000px 0px" })
     : null;
+
+  // Fetch while the open animation runs instead of after it.
+  document.addEventListener("show.bs.collapse", (event) => {
+    const loader = getCollapseLoader(event.target);
+    if (loader && !getState(loader).loaded) {
+      loadPage(loader);
+    }
+  });
 
   document.addEventListener("shown.bs.collapse", (event) => {
     const loader = getCollapseLoader(event.target);
-    if (!loader) {
-      return;
+    if (loader) {
+      observeNextPage(loader, getState(loader));
     }
-
-    const state = getState(loader);
-    if (!state.loaded) {
-      loadPage(loader);
-      return;
-    }
-    observeNextPage(loader, state);
   });
 
   document.addEventListener("hidden.bs.collapse", (event) => {

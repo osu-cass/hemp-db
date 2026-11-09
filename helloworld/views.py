@@ -42,7 +42,6 @@ from .upload import (
 from .notifications import email_admins, email_upload_reviewers
 from .authentication import activate_email
 from .pending_changes import (
-    InvalidCursor,
     get_category_counts,
     get_change_page,
     get_company_page,
@@ -1029,7 +1028,7 @@ def pending_change_companies(
     """Render one page of company summaries for a pending category."""
     try:
         page = get_company_page(category, request.GET.get("cursor"))
-    except (InvalidCursor, ValueError):
+    except ValueError:
         return HttpResponseBadRequest("Invalid pending-change request.")
 
     next_url = _pending_page_url(
@@ -1056,7 +1055,7 @@ def pending_company_changes(
     """Render one page of pending rows for a company."""
     try:
         page = get_change_page(category, company_id, request.GET.get("cursor"))
-    except (InvalidCursor, ValueError):
+    except ValueError:
         return HttpResponseBadRequest("Invalid pending-change request.")
 
     next_url = _pending_page_url(
@@ -1094,7 +1093,9 @@ def upload_batch_reject(_request: HttpRequest, batch) -> HttpResponse:
 @require_application_permission(EDIT_COMPANIES)
 def myChanges(request: HttpRequest) -> HttpResponse:
     """Show only the current editor's company submissions."""
-    changes = PendingChanges.objects.filter(author=request.user).select_related("author")
+    changes = PendingChanges.objects.filter(author=request.user).select_related(
+        "company", "pending_company"
+    )
     return render(request, 'my_changes.html', {'changes': changes})
 
 def map(request: HttpRequest) -> HttpResponse:
