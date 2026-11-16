@@ -4,6 +4,8 @@ from django.contrib.auth.models import User
 from django.utils.timezone import now
 from django.utils.translation import gettext_lazy as _
 
+from .validators import validate_https_url
+
 # Django strongly encourages using lowercase table names using MySQL
 # https://docs.djangoproject.com/en/5.1/ref/models/options/
 # This will also restrict us to using snake_case so words are preserved.
@@ -169,6 +171,9 @@ class CompanyDetail(models.Model):
     Stage = models.ManyToManyField(Stage, blank=True)
     productGroup = models.ManyToManyField(ProductGroup, blank=True)
     Products = models.CharField(max_length=250, blank=True)
+    ProductsPageUrl = models.URLField(
+        "Products page URL", max_length=2048, blank=True, validators=[validate_https_url]
+    )
     sasContact = models.CharField(max_length=250, blank=True)
     Description = models.CharField(max_length=2048, blank=True)
     pubPriv = models.CharField(max_length=128, blank=True)

@@ -23,6 +23,7 @@ This is the main model representing the bulk of the data we store. Since the CMC
 | Country         |                                       |
 | Website         |                                       |
 | Products        |                                       |
+| ProductsPageUrl | Optional https:// products page link  |
 | sasContact      |                                       |
 | Description     | Description of company                |
 | pubPriv         | Public or private company             |

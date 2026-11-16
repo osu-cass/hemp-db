@@ -6,6 +6,7 @@ import uuid
 import zipfile
 
 import pandas as pd
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Exists, Min, OuterRef
 from django.utils import timezone
@@ -20,6 +21,7 @@ from .models import (
     UploadIndex,
 )
 from .signals import invalidate_map_cache
+from .validators import validate_https_url
 
 
 class UploadValidationError(ValueError):
@@ -137,6 +139,18 @@ def _base_record(row):
     return record
 
 
+def _url_errors(record, row_number) -> list[str]:
+    """Return row errors for a products page URL that is not a full https:// URL."""
+    value = record.get("ProductsPageUrl")
+    if _is_missing(value):
+        return []
+    try:
+        validate_https_url(value)
+    except ValidationError:
+        return [f"Row {row_number}: ProductsPageUrl must be a full https:// URL."]
+    return []
+
+
 def _reference_id(value):
     """Coerce a spreadsheet cell into a whole-number primary key, else None."""
     if isinstance(value, bool):
@@ -190,6 +204,8 @@ def _validated_records(dataframe):
         for field_name in required_columns:
             if _is_missing(record.get(field_name)):
                 raise UploadValidationError(f"Row {row_number}: {field_name} is required.")
+        if errors := _url_errors(record, row_number):
+            raise UploadValidationError(errors[0])
         for field_name, model in FOREIGN_KEY_MODELS.items():
             record[field_name] = _resolve_reference(
                 field_name, model, record.get(field_name), row_number, caches[field_name]

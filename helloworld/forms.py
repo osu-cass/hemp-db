@@ -12,6 +12,7 @@ from .models import Grower
 from .models import Industry
 from .models import Status
 from .models import Resources
+from .validators import HTTPS_URL_MESSAGE
 
 class ResourceForm(forms.ModelForm):
     CHOICES = (
@@ -112,7 +113,9 @@ class PendingCompanyForm(forms.ModelForm):
     class Meta:
         model = PendingCompany
         fields = "__all__"
-    
+        # One message whether the form field or the model validator rejects it.
+        error_messages = {"ProductsPageUrl": {"invalid": HTTPS_URL_MESSAGE}}
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['Latitude'].label = "Latitude (Up to 6 decimals)"

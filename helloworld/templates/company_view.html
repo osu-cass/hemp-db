@@ -21,6 +21,15 @@
     <table class="table table-striped table-sm">
         <tbody>
           {% for key, val in obj.items %}
+          {% if key == 'ProductsPageUrl' %}
+            {# Exact match; an empty URL renders no row #}
+            {% if val %}
+          <tr>
+            <td> Products page URL </td>
+            <td> {% include "partials/products_page_link.html" with url=val %} </td>
+          </tr>
+            {% endif %}
+          {% else %}
           <tr>
             <td> {{ key }} </td>
             {% if 'Website' in key %}
@@ -61,6 +70,7 @@
               {% endif %}
             {% endif %}
           </tr>
+          {% endif %}
         {% endfor %}
         </tbody> 
     </table>
