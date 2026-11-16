@@ -32,15 +32,14 @@
           <p> {{ field.label_tag }} </p>
         {% endif %}
         <p> {{ field }} </p>
+        {% for error in field.errors %}
+          <p class="text-danger small"> {{ field.label }}: {{ error }} </p>
+        {% endfor %}
       {% endfor %}
 
-      {% if form.errors %}
-        {% for field in form %}
-          {% for error in field.errors %}
-            <p> {{ error }} </p>
-          {% endfor %}
-        {% endfor %}
-      {% endif %}
+      {% for error in form.non_field_errors %}
+        <p class="text-danger small"> {{ error }} </p>
+      {% endfor %}
     </div>
     <div class="modalFooter">
       <button type="submit" class="btn btn-danger" value="Submit" style="float: right; margin: 5px;">Submit</button>
