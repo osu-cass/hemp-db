@@ -94,11 +94,11 @@ class PendingCompanyForm(forms.ModelForm):
             required=False)
     Category = forms.ModelMultipleChoiceField(
             queryset=Category.objects.all(),
-            widget=forms.SelectMultiple(attrs={'class': 'form-select', 'size': '8', 'style': 'margin-bottom: 10px;'}),
+            widget=forms.CheckboxSelectMultiple,
             required=False)
     stakeholderGroup = forms.ModelMultipleChoiceField(
             queryset=stakeholderGroups.objects.all(),
-            widget=forms.SelectMultiple(attrs={'class': 'form-select', 'size': '8', 'style': 'margin-bottom: 10px;'}),
+            widget=forms.CheckboxSelectMultiple,
             required=False)
     Stage = forms.ModelMultipleChoiceField(
             queryset=Stage.objects.all(),

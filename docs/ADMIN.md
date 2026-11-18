@@ -106,6 +106,8 @@ To submit an edit or deletion, use the controls in the Companies table. HempDB s
 
 To add many companies at once, use `Databases > Companies > Import` to stage a CSV or XLSX file. The upload page previews the staged rows and marks names that already exist. `Submit All for Review` sends every row to the Changes view. `Submit Unique for Review` sends only rows whose names are new and discards the rest. `Cancel All` discards the upload. No uploaded company appears in the database until a reviewer approves it.
 
+The `Status`, `Industry` and `Grower` columns take one reference ID each. The `Category`, `stakeholderGroup`, `Stage`, `productGroup` and `Solutions` columns take any number of IDs separated by semicolons, such as `1;4`. Leave a cell blank to assign none. The reference table pages export each table's IDs. The company export writes these columns in the same format, so you can edit an export and upload it again. Fill in any blank `Status`, `Industry` or `Grower` cells first, because the upload requires them.
+
 ## Transaction Approvals
 
 All company transactions require review. Users with `helloworld.edit_companies` can view every pending change and see their own submissions in My Changes. Only users with `helloworld.review_company_changes` see the Approve and Reject buttons.
