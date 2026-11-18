@@ -133,7 +133,7 @@ class CompanyListingTests(ReferenceDataMixin, TestCase):
 
         labels = reference_labels(company)
 
-        self.assertEqual(labels["Category"], "Grower, Processor")
+        self.assertCountEqual(labels["Category"].split(", "), ["Grower", "Processor"])
         self.assertEqual(labels["Stage"], "--")
 
     def test_list_page_shows_every_category(self):
@@ -142,7 +142,10 @@ class CompanyListingTests(ReferenceDataMixin, TestCase):
 
         response = self.client.get(reverse("companies"))
 
-        self.assertContains(response, "Grower, Processor")
+        # Related rows have no defined order.
+        self.assertRegex(
+            response.content.decode(), "Grower, Processor|Processor, Grower"
+        )
 
     def test_filter_lists_company_once_when_it_matches_several_values(self):
         """Return one row for a company matching two selected categories."""
