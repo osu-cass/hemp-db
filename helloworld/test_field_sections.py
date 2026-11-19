@@ -47,6 +47,16 @@ class SectionPageTests(CompanyWorkflowHelpers, TestCase):
             self.client.get(reverse("edit-company", args=[self.company.pk]))
         )
 
+    def test_required_marker_is_red(self):
+        """Mark required fields with a red asterisk."""
+        response = self.client.get(reverse("edit-company", args=[self.company.pk]))
+
+        self.assertContains(
+            response,
+            '<label for="id_Name" class="form-label d-block mb-1">'
+            '<span class="text-danger" aria-hidden="true">*</span> Name</label>',
+        )
+
     def test_create_modal(self):
         """Group the create modal fields."""
         self._assert_sections_in_order(self.client.get(reverse("companies")))
