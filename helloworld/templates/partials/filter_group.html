@@ -1,0 +1,7 @@
+{# One companies filter as a titled group. Pass a one-field filter form as filter_form. #}
+{% for field in filter_form %}
+<fieldset class="filter-group">
+  <legend>{{ field.label }}</legend>
+  {{ field }}
+</fieldset>
+{% endfor %}

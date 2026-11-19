@@ -113,7 +113,9 @@ class FilterStateForm(forms.Form):
         # US states that have at least one company; other countries' regions are free text
         used = {
             state.upper()
-            for state in Company.objects.filter(State__in=US_STATES).values_list("State", flat=True)
+            for state in Company.objects.filter(State__in=US_STATES)
+            .values_list("State", flat=True)
+            .distinct()
         }
         self.fields["state"].choices = [
             choice for choice in US_STATE_CHOICES if choice[0] in used
