@@ -8,9 +8,15 @@ import zipfile
 import pandas as pd
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Exists, Min, OuterRef
+from django.db.models import Exists, Min, OuterRef, prefetch_related_objects
 from django.utils import timezone
 
+from .company_references import (
+    ID_SEPARATOR,
+    MANY_TO_MANY_FIELDS,
+    bulk_add_references,
+    reference_ids,
+)
 from .models import (
     Company,
     Grower,
@@ -204,8 +210,61 @@ def _resolve_reference(field_name, model, value, row_number, references):
     return instance
 
 
+def _cell_reference_ids(field_name, value, row_number):
+    """Parse a semicolon-separated cell into unique reference IDs."""
+    if _is_missing(value):
+        return []
+    parts = value.split(ID_SEPARATOR) if isinstance(value, str) else [value]
+    ids = []
+    for part in parts:
+        if isinstance(part, str):
+            part = part.strip()
+            if not part:
+                continue
+        pk = _reference_id(part)
+        if pk is None:
+            raise UploadValidationError(
+                f"Row {row_number}: {field_name} must contain IDs separated by semicolons."
+            )
+        ids.append(pk)
+    return list(dict.fromkeys(ids))
+
+
+def _many_to_many_references(dataframe, row_numbers):
+    """Validate many-to-many cells and return each row's reference IDs.
+
+    Returns:
+        One mapping of field name to IDs per row, in input order.
+    """
+    columns = [field for field in MANY_TO_MANY_FIELDS if field in dataframe.columns]
+    references = [{} for _ in row_numbers]
+    for field_name in columns:
+        for row_refs, row_number, value in zip(
+            references, row_numbers, dataframe[field_name], strict=True
+        ):
+            if ids := _cell_reference_ids(field_name, value, row_number):
+                row_refs[field_name] = ids
+
+        requested = {pk for row_refs in references for pk in row_refs.get(field_name, ())}
+        if not requested:
+            continue
+        model = PendingCompany._meta.get_field(field_name).related_model
+        existing = set(model.objects.filter(pk__in=requested).values_list("pk", flat=True))
+        for row_refs, row_number in zip(references, row_numbers, strict=True):
+            missing = [pk for pk in row_refs.get(field_name, ()) if pk not in existing]
+            if missing:
+                raise UploadValidationError(
+                    f"Row {row_number}: {field_name} ID {missing[0]} does not exist."
+                )
+    return references
+
+
 def _validated_records(dataframe):
-    """Validate every row and return constructor records in input order."""
+    """Validate every row in input order.
+
+    Returns:
+        Constructor records and the matching many-to-many reference IDs.
+    """
     rows = [
         (row_number, _base_record(row))
         for row_number, row in enumerate(dataframe.to_dict("records"), start=2)
@@ -225,14 +284,17 @@ def _validated_records(dataframe):
             record[field_name] = _resolve_reference(
                 field_name, model, record.get(field_name), row_number, caches[field_name]
             )
-    return records
+    references = _many_to_many_references(
+        dataframe, [row_number for row_number, _ in rows]
+    )
+    return records, references
 
 
 @transaction.atomic
 def import_pending_companies(dataframe):
     """Validate and atomically create pending companies and upload indexes."""
     validate_upload_columns(dataframe)
-    records = _validated_records(dataframe)
+    records, references = _validated_records(dataframe)
     batch_id = uuid.uuid4()
     staged = [PendingCompany(import_batch_id=batch_id, **record) for record in records]
     PendingCompany.objects.bulk_create(staged, batch_size=IMPORT_BATCH_SIZE)
@@ -242,6 +304,7 @@ def import_pending_companies(dataframe):
     if len(persisted) != len(staged):
         raise RuntimeError("The number of staged rows did not match the uploaded rows.")
 
+    bulk_add_references(zip(persisted, references, strict=True), IMPORT_BATCH_SIZE)
     UploadIndex.objects.bulk_create(
         (UploadIndex(pendingID=str(company.pk)) for company in persisted),
         batch_size=IMPORT_BATCH_SIZE,
@@ -325,9 +388,7 @@ def _pending_batch_changes(batch):
 
 
 def approve_upload_batch(batch) -> int:
-    """Publish the pending companies of one upload batch.
-
-    Uploads stage concrete fields only, so no many-to-many values are copied.
+    """Publish the pending companies of one upload batch with their reference links.
 
     Returns:
         The number of companies created.
@@ -337,17 +398,30 @@ def approve_upload_batch(batch) -> int:
         if not changes:
             return 0
 
+        pending = [change.pending_company for change in changes]
+        prefetch_related_objects(pending, *MANY_TO_MANY_FIELDS)
         approval_time = timezone.now()
         companies = [
-            Company(
-                **change.pending_company.shared_concrete_field_values(
-                    Company, excluded_fields={"lastUpdated"}
+            (
+                Company(
+                    **company.shared_concrete_field_values(
+                        Company, excluded_fields={"lastUpdated"}
+                    ),
+                    lastUpdated=approval_time,
                 ),
-                lastUpdated=approval_time,
+                reference_ids(company),
             )
-            for change in changes
+            for company in pending
         ]
-        Company.objects.bulk_create(companies, batch_size=IMPORT_BATCH_SIZE)
+        Company.objects.bulk_create(
+            [company for company, references in companies if not references],
+            batch_size=IMPORT_BATCH_SIZE,
+        )
+        # MySQL bulk inserts return no IDs, so save linked companies one at a time.
+        linked = [(company, references) for company, references in companies if references]
+        for company, _ in linked:
+            company.save()
+        bulk_add_references(linked, IMPORT_BATCH_SIZE)
         PendingChanges.objects.filter(pk__in=[change.pk for change in changes]).update(
             status=PendingChanges.PendingStatus.APPROVED
         )

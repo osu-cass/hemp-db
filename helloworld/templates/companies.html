@@ -81,17 +81,17 @@
       </tr>
     </thead>
     <tbody>
-      {% for company, solution, category, productgroup, stakeholdergroup, stages in companies %}
+      {% for company, labels in companies %}
         <tr>
             <td><a href="{% url 'company-view' company.id %}">{{ company.Name }}</a></td>
           <td style="{% if company.Status.status == 'Active' %}color:green{% else %}color:red{% endif %}"><b>{{ company.Status.status }}</b></td>
           <td>{{ company.Industry.industry }}</td>
-          <td>{{ category }}</td>
-          <td>{{ stakeholdergroup }}</td>
-          <td>{{ stages }}</td>
-          <td>{{ productgroup }}</td>
+          <td>{{ labels.Category }}</td>
+          <td>{{ labels.stakeholderGroup }}</td>
+          <td>{{ labels.Stage }}</td>
+          <td>{{ labels.productGroup }}</td>
           <td>{{ company.Description|truncatechars:100 }}</td>
-          <td>{{ solution }}</td>
+          <td>{{ labels.Solutions }}</td>
           {% if perms.helloworld.edit_companies %}
             <td>
               <div style="display: flex; gap: 5px;">
