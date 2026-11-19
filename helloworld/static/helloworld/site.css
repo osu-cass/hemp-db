@@ -43,15 +43,17 @@
   background-color: #ffdddd;
 }
 
-/* Companies filter modal: groups flow into as many columns as fit. */
+/* Companies filter modal: a grid keeps each group in a fixed spot as values change. */
 .filter-groups {
-  column-width: 15rem;
-  column-gap: 2rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 1.5rem 2rem;
+  margin-bottom: 1rem;
 }
 
 .filter-group {
-  break-inside: avoid;
-  margin-bottom: 1.5rem;
+  margin: 0;
+  min-width: 0;
 }
 
 .filter-group legend {
@@ -67,6 +69,11 @@
   gap: 0.5rem;
   padding: 0.125rem 0;
   overflow-wrap: anywhere;
+}
+
+.filter-group legend label {
+  display: inline;
+  padding: 0;
 }
 
 /* Chips remove a filter value on click, so hover and focus show it in red. */
