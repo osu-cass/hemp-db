@@ -60,8 +60,11 @@ for (const select of document.querySelectorAll("select[multiple][data-chip-place
 
   const render = () => {
     const options = [...select.options];
+    // A disabled, selected prompt reads as a placeholder, not a choice
+    const prompt = new Option(select.dataset.chipPlaceholder, "", true, true);
+    prompt.disabled = true;
     picker.replaceChildren(
-      new Option(select.dataset.chipPlaceholder, ""),
+      prompt,
       ...options.filter((option) => !option.selected).map((option) => new Option(option.text, option.value)),
     );
     chips.replaceChildren(...options.filter((option) => option.selected).map((option) => {
