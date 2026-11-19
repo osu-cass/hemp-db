@@ -1,0 +1,11 @@
+{# A USPS dropdown and a text box share the name; site.js enables the one that fits Country. #}
+<div data-us-state data-field-id="{{ widget.field_id }}" data-us-countries="{{ widget.us_countries }}">
+  <select name="{{ widget.name }}" class="form-select"{% if widget.us_country %} id="{{ widget.field_id }}"{% else %} disabled hidden{% endif %}>
+    <option value="">---------</option>
+    {% if widget.unmapped %}<option value="{{ widget.unmapped }}" selected data-unmapped>{{ widget.unmapped }}</option>{% endif %}
+    {% for code, label in widget.choices %}
+    <option value="{{ code }}"{% if code == widget.value %} selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  <input type="{{ widget.type }}" name="{{ widget.name }}"{% if widget.value != None %} value="{{ widget.value|stringformat:'s' }}"{% endif %}{% include "django/forms/widgets/attrs.html" %}{% if widget.us_country %} disabled hidden{% else %} id="{{ widget.field_id }}"{% endif %}>
+</div>

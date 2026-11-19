@@ -17,7 +17,16 @@ from .forms import FilterStakeholderGroupForm
 from .forms import FilterStageForm
 from .forms import FilterProductGroupForm
 from .forms import FilterSolutionForm
+from .forms import FilterStateForm
 from .forms import ResourceForm
+from .company_references import (
+    FILTER_PARAMETERS,
+    MANY_TO_MANY_FIELDS,
+    company_rows,
+    filter_companies,
+    format_reference_ids,
+    reference_ids,
+)
 from .models import Company
 from .models import PendingCompany
 from .models import Category
@@ -285,20 +294,15 @@ def companies(request: HttpRequest) -> HttpResponse:
         page = page if abs(page) < len(PAGE_INDEX)+1 else 1
     except ValueError: 
         page = 1
-    companies = Company.objects.filter(Name__istartswith=PAGE_INDEX[page-1]).select_related('Industry', 'Status').prefetch_related('Solutions', 'Category', 'stakeholderGroup', 'productGroup', 'Stage')
-    solutions = [company.Solutions.all()[:1][0] if len(company.Solutions.all()[:1]) > 0 else "--" for company in companies]
-    categories = [company.Category.all()[:1][0] if len(company.Category.all()[:1]) > 0 else "--" for company in companies]
-    productGroups = [company.productGroup.all()[:1][0] if len(company.productGroup.all()[:1]) > 0 else "--" for company in companies]
-    stakeholderGroups = [company.stakeholderGroup.all()[:1][0] if len(company.stakeholderGroup.all()[:1]) > 0 else "--" for company in companies]
-    stages = [company.Stage.all()[:1][0] if len(company.Stage.all()[:1]) > 0 else "--" for company in companies]
-    
+    companies = Company.objects.filter(Name__istartswith=PAGE_INDEX[page-1]).select_related('Industry', 'Status').prefetch_related(*MANY_TO_MANY_FIELDS)
+
     if request.method == 'POST':
         form = PendingCompanyForm(request.POST)
         if form.is_valid():
             company = form.save(commit=False) # Don't save to DB yet
 
             if not company.Latitude and not company.Longitude:
-                lat, lng = geocode_location(company.Address, company.City, company.State, company.Country)
+                lat, lng = geocode_location(company.Address, company.City, company.State, company.ZIP, company.Country)
                 company.Latitude = lat
                 company.Longitude = lng
 
@@ -308,23 +312,28 @@ def companies(request: HttpRequest) -> HttpResponse:
             pending_change = PendingChanges.objects.create(pending_company=company, changeType='create', author=request.user)
             email_admins('created', company.Name, pending_change.id, request.get_host())
             return redirect('/companies')  # Redirect to a success page
+        # The create modal re-renders hidden, so list its errors on the page
+        for field in form:
+            for error in field.errors:
+                messages.error(request, f"{field.label}: {error}")
+        for error in form.non_field_errors():
+            messages.error(request, error)
     else:
         form = PendingCompanyForm()
-        uploadForm = UploadFileForm()
-        searchForm = SearchForm()
-        filterStatusForm = FilterStatusForm()
-        filterIndustryForm = FilterIndustryForm()
-        filterCategoryForm = FilterCategoryForm()
-        filterStakeholderGroupForm = FilterStakeholderGroupForm()
-        filterStageForm = FilterStageForm()
-        filterProductGroupForm = FilterProductGroupForm()
-        filterSolutionForm = FilterSolutionForm()
-
-    data = zip(companies, solutions, categories, productGroups, stakeholderGroups, stages)
+    uploadForm = UploadFileForm()
+    searchForm = SearchForm()
+    filterStatusForm = FilterStatusForm()
+    filterIndustryForm = FilterIndustryForm()
+    filterCategoryForm = FilterCategoryForm()
+    filterStakeholderGroupForm = FilterStakeholderGroupForm()
+    filterStageForm = FilterStageForm()
+    filterProductGroupForm = FilterProductGroupForm()
+    filterSolutionForm = FilterSolutionForm()
+    filterStateForm = FilterStateForm()
 
     return render(request, 'companies.html', {'form': form,
                                               'uploadForm': uploadForm,
-                                              'companies': data,
+                                              'companies': company_rows(companies),
                                               'num_companies': companies.count(),
                                               'searchForm': searchForm, 
                                               'cur_page': page,
@@ -335,7 +344,8 @@ def companies(request: HttpRequest) -> HttpResponse:
                                               'filterStakeholderGroupForm': filterStakeholderGroupForm,
                                               'filterStageForm': filterStageForm,
                                               'filterProductGroupForm': filterProductGroupForm,
-                                              'filterSolutionForm': filterSolutionForm
+                                              'filterSolutionForm': filterSolutionForm,
+                                              'filterStateForm': filterStateForm,
                                               })
 
 @require_application_permission(EDIT_COMPANIES)
@@ -344,9 +354,11 @@ def edit_company(request: HttpRequest, id: int) -> HttpResponse:
 
     company = Company.objects.get(id = id)
     original_company = deepcopy(company) # Deep copy original data for location comparison
-    form = PendingCompanyForm(request.POST, instance=company)
+    # Bind only on POST; an unbound form is never valid
+    data = request.POST if request.method == 'POST' else None
+    form = PendingCompanyForm(data, instance=company)
 
-    if request.POST and form.is_valid():
+    if form.is_valid():
         company_edit = form.save(commit=False)
         new_company = PendingCompany(
             **company_edit.shared_concrete_field_values(PendingCompany)
@@ -355,7 +367,7 @@ def edit_company(request: HttpRequest, id: int) -> HttpResponse:
         # If location fields have changed, geocode new lat/lng
         location_changed = check_if_location_edited(original_company, new_company)
         if location_changed:
-            lat, lng = geocode_location(new_company.Address, new_company.City, new_company.State, new_company.Country)
+            lat, lng = geocode_location(new_company.Address, new_company.City, new_company.State, new_company.ZIP, new_company.Country)
             new_company.Latitude = lat
             new_company.Longitude = lng
 
@@ -372,15 +384,14 @@ def edit_company(request: HttpRequest, id: int) -> HttpResponse:
         pending_change = PendingChanges.objects.create(pending_company=new_company, changeType='edit', company=company, author=request.user)
         email_admins('edited', new_company.Name, pending_change.id, request.get_host())
         return redirect('/companies')  # Redirect to a success page
-    else: 
-        form = PendingCompanyForm(instance=company)
 
+    # An invalid bound form re-renders with its errors and entered values
     return render(request, 'edit_companies.html', {'form': form, 'company': company})
 
 def check_if_location_edited(company: Company, new_company: PendingCompany) -> bool:
     """
     Given a company and it's pending company (edits made), checks if
-    the Address, City, State, or Country were changed. If any of these
+    the Address, City, State, ZIP, or Country were changed. If any of these
     have changed and the Latitude and Longitude were NOT changed,
     returns True. Otherwise False.
 
@@ -395,7 +406,7 @@ def check_if_location_edited(company: Company, new_company: PendingCompany) -> b
     bool: True if user changed any location field without updating latitude/longitude
           False if user changed latitude/longitude, or didn't edit any location fields
     """
-    location_fields = ['Address', 'City', 'State', 'Country']
+    location_fields = ['Address', 'City', 'State', 'ZIP', 'Country']
     lat_lng_fields = ['Latitude', 'Longitude']
     a = b = False
 
@@ -581,51 +592,16 @@ def view_company_reject(_request: HttpRequest, id: int) -> HttpResponse:
 def companies_filtered(request: HttpRequest) -> HttpResponse:
     """Show signed-in users a filtered company listing."""
     query = None
-    companies = Company.objects.select_related('Industry', 'Status').prefetch_related('Solutions', 'Category', 'stakeholderGroup', 'productGroup', 'Stage')
+    companies = Company.objects.select_related('Industry', 'Status').prefetch_related(*MANY_TO_MANY_FIELDS)
 
-    # Need to initialize to avoid edge-case server error
-    filter_dict = {
-        'Status': [],
-        'Industry': [],
-        'Category': [],
-        'stakeholderGroup': [],
-        'Stage': [],
-        'productGroup': [],
-        'Solutions': []
-    }
-    
+    filter_dict = dict.fromkeys(FILTER_PARAMETERS, [])
     if "item-filter" in request.POST:
-        status_ids = request.POST.getlist("status")
-        industry_ids = request.POST.getlist("industry")
-        category_ids = request.POST.getlist("category")
-        stakeholder_group_ids = request.POST.getlist("stakeholder_groups")
-        stage_ids = request.POST.getlist("stage")
-        product_ids = request.POST.getlist("product_group")
-        solution_ids = request.POST.getlist("solution")
-        filter_lists = [
-            (status_ids, "Status"), 
-            (industry_ids, "Industry"), 
-            (category_ids, "Category"), 
-            (stakeholder_group_ids, "stakeholderGroup"),
-            (stage_ids, "Stage"),
-            (product_ids, "productGroup"),
-            (solution_ids, "Solutions")
-        ]
-        filter_dict = {field: lst for lst, field in filter_lists}
-        for lst, field in filter_lists:
-            if lst:
-                companies = companies.filter(**{f"{field}__in": lst})
+        companies, filter_dict = filter_companies(companies, request.POST)
 
     if "company-search" in request.POST:
         form = SearchForm(request.POST)
         query = form["q"]
         companies = companies.filter(Name__icontains=query.value())
-    
-    solutions = [company.Solutions.all()[:1][0] if len(company.Solutions.all()[:1]) > 0 else "--" for company in companies]
-    categories = [company.Category.all()[:1][0] if len(company.Category.all()[:1]) > 0 else "--" for company in companies]
-    productGroups = [company.productGroup.all()[:1][0] if len(company.productGroup.all()[:1]) > 0 else "--" for company in companies]
-    stakeholderGroups = [company.stakeholderGroup.all()[:1][0] if len(company.stakeholderGroup.all()[:1]) > 0 else "--" for company in companies]
-    stages = [company.Stage.all()[:1][0] if len(company.Stage.all()[:1]) > 0 else "--" for company in companies]
 
     form = PendingCompanyForm()
     searchForm = SearchForm()
@@ -638,11 +614,10 @@ def companies_filtered(request: HttpRequest) -> HttpResponse:
     filterStageForm = FilterStageForm(initial={'stage': filter_dict['Stage']})
     filterProductGroupForm = FilterProductGroupForm(initial={'product_group': filter_dict['productGroup']})
     filterSolutionForm = FilterSolutionForm(initial={'solution': filter_dict['Solutions']})
+    filterStateForm = FilterStateForm(initial={'state': filter_dict['State']})
 
-    data = zip(companies, solutions, categories, productGroups, stakeholderGroups, stages)
-
-    return render(request, 'companies.html', {'form': form, 
-                                              'companies': data, 
+    return render(request, 'companies.html', {'form': form,
+                                              'companies': company_rows(companies),
                                               'searchForm': searchForm, 
                                               'query': query.value() if query else None, 
                                               'page_index': PAGE_INDEX,
@@ -652,7 +627,8 @@ def companies_filtered(request: HttpRequest) -> HttpResponse:
                                               'filterStakeholderGroupForm': filterStakeholderGroupForm,
                                               'filterStageForm': filterStageForm,
                                               'filterProductGroupForm': filterProductGroupForm,
-                                              'filterSolutionForm': filterSolutionForm
+                                              'filterSolutionForm': filterSolutionForm,
+                                              'filterStateForm': filterStateForm,
                                               })
 
 @require_application_permission(EDIT_COMPANIES)
@@ -673,41 +649,23 @@ def export_companies(request: HttpRequest) -> HttpResponse:
     response = HttpResponse(content_type='text/csv')
     response['Content-Disposition'] = 'attachment; filename="companies.csv"'
 
+    fields = Company._meta.concrete_fields
     writer = csv.writer(response)
-    writer.writerow([str(field).split('helloworld.Company.')[1] for field in Company._meta.fields])
+    writer.writerow([field.name for field in fields] + list(MANY_TO_MANY_FIELDS))
 
-    companies = Company.objects.select_related('Industry', 'Status').prefetch_related('Solutions', 'Category', 'stakeholderGroup', 'productGroup', 'Stage')
+    companies = Company.objects.prefetch_related(*MANY_TO_MANY_FIELDS)
 
     if request.method == 'POST':
-        if "status" in request.POST:
-            status_ids = request.POST.getlist("status")
-            companies = companies.filter(Status__in=status_ids)
-        if "industry" in request.POST:
-            industry_ids = request.POST.getlist("industry")
-            companies = companies.filter(Industry__in=industry_ids)
-        if "category" in request.POST:
-            category_ids = request.POST.getlist("category")
-            companies = companies.filter(Category__in=category_ids)
-        if "stakeholder_groups" in request.POST:
-            stakeholder_group_ids = request.POST.getlist("stakeholder_groups")
-            companies = companies.filter(stakeholderGroup__in=stakeholder_group_ids)
-        if "stage" in request.POST:
-            stage_ids = request.POST.getlist("stage")
-            companies = companies.filter(Stage__in=stage_ids)
-        if "product_group" in request.POST:
-            product_ids = request.POST.getlist("product_group")
-            companies = companies.filter(productGroup__in=product_ids)
-        if "solution" in request.POST:
-            solution_ids = request.POST.getlist("solution")
-            companies = companies.filter(Solutions__in=solution_ids)
+        companies, _ = filter_companies(companies, request.POST)
         if "q" in request.POST:
-            query = request.POST["q"]
-            companies = companies.filter(Name__icontains=query)
+            companies = companies.filter(Name__icontains=request.POST["q"])
 
-        companies = companies.distinct()
-
-    for company in companies.values_list():
-        writer.writerow(company)
+    for company in companies:
+        references = reference_ids(company)
+        writer.writerow(
+            [getattr(company, field.attname) for field in fields]
+            + [format_reference_ids(references.get(field, [])) for field in MANY_TO_MANY_FIELDS]
+        )
 
     return response
 
@@ -1239,7 +1197,7 @@ def edit_resource(request: HttpRequest, id: int) -> HttpResponse:
     
     return render(request, 'edit_resource.html', {'form': form, 'resource': resource})
 
-def geocode_location(address: str, city: str, state: str, country: str) -> tuple[Decimal, Decimal]:
+def geocode_location(address: str, city: str, state: str, zip_code: str, country: str) -> tuple[Decimal, Decimal]:
     """
     Takes in address components, cleans them, constructs a geocoding query,
     and returns the latitude and longitude using geocoder.arcgis(). Returns
@@ -1249,6 +1207,7 @@ def geocode_location(address: str, city: str, state: str, country: str) -> tuple
     address (str): Company/PendingCompany.Address
     city (str): Company/PendingCompany.City
     state (str): Company/PendingCompany.State
+    zip_code (str): Company/PendingCompany.ZIP
     country (str): Company/PendingCompany.Country
 
     Returns:
@@ -1266,6 +1225,7 @@ def geocode_location(address: str, city: str, state: str, country: str) -> tuple
     cleaned_address = clean_value(address)
     cleaned_city = clean_value(city)
     cleaned_state = clean_value(state)
+    cleaned_zip = clean_value(zip_code)
     cleaned_country = clean_value(country)
 
     # Construct the geocoding query
@@ -1276,6 +1236,8 @@ def geocode_location(address: str, city: str, state: str, country: str) -> tuple
         query_parts.append(cleaned_city)
     if cleaned_state:
         query_parts.append(cleaned_state)
+    if cleaned_zip:
+        query_parts.append(cleaned_zip)
     if cleaned_country:
         query_parts.append(cleaned_country)
 

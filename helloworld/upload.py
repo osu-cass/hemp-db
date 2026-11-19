@@ -8,10 +8,17 @@ import zipfile
 from collections import Counter
 
 import pandas as pd
+from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Exists, Min, OuterRef
+from django.db.models import Exists, Min, OuterRef, prefetch_related_objects
 from django.utils import timezone
 
+from .company_references import (
+    ID_SEPARATOR,
+    MANY_TO_MANY_FIELDS,
+    bulk_add_references,
+    reference_ids,
+)
 from .models import (
     Company,
     Grower,
@@ -21,7 +28,9 @@ from .models import (
     Status,
     UploadIndex,
 )
+from .locations import clean_location
 from .signals import invalidate_map_cache
+from .validators import validate_https_url
 
 
 class UploadValidationError(ValueError):
@@ -46,6 +55,8 @@ EXCLUDED_MODEL_FIELDS = frozenset({"id", "dateCreated", "lastUpdated", "import_b
 IMPORT_BATCH_SIZE = 500
 # Row problems listed in one error message; the rest are counted.
 MAX_REPORTED_ROW_ERRORS = 10
+# Read as text so ZIP codes keep leading zeros and a numeric State isn't dropped.
+TEXT_COLUMNS = {"State": str, "ZIP": str}
 
 SPREADSHEET_FIELDS = frozenset(
     field.name
@@ -58,7 +69,9 @@ FIELD_MAX_LENGTHS = {
     if field.name in SPREADSHEET_FIELDS
     and field.max_length is not None
 }
-FIELDS_BY_LOWERCASE_NAME = {name.lower(): name for name in SPREADSHEET_FIELDS}
+# Columns an upload may contain: concrete fields plus many-to-many reference IDs.
+UPLOAD_COLUMNS = SPREADSHEET_FIELDS | frozenset(MANY_TO_MANY_FIELDS)
+FIELDS_BY_LOWERCASE_NAME = {name.lower(): name for name in UPLOAD_COLUMNS}
 
 # pandas renames a repeated header "Name" to "Name.1" and a blank one to "Unnamed: 3".
 RENAMED_DUPLICATE_HEADER = re.compile(r"(?P<name>.+)\.\d+")
@@ -157,7 +170,7 @@ def read_upload_dataframe(uploaded_file):
     if _is_xlsx(uploaded_file):
         _reset_file(uploaded_file)
         try:
-            dataframe = pd.read_excel(uploaded_file, engine="openpyxl")
+            dataframe = pd.read_excel(uploaded_file, engine="openpyxl", dtype=TEXT_COLUMNS)
         except ImportError as error:
             raise UploadValidationError(
                 "XLSX uploads require the openpyxl engine."
@@ -167,7 +180,7 @@ def read_upload_dataframe(uploaded_file):
     else:
         _reset_file(uploaded_file)
         try:
-            dataframe = pd.read_csv(uploaded_file, encoding="utf-8-sig")
+            dataframe = pd.read_csv(uploaded_file, encoding="utf-8-sig", dtype=TEXT_COLUMNS)
         except UnicodeDecodeError as error:
             raise UploadValidationError(
                 "CSV uploads must use UTF-8 encoding, including UTF-8 with a BOM."
@@ -195,7 +208,7 @@ def validate_upload_columns(dataframe):
         errors.append(
             f"The upload is missing required columns: {', '.join(missing_columns)}."
         )
-    unrecognized = sorted(columns - SPREADSHEET_FIELDS - EXCLUDED_MODEL_FIELDS)
+    unrecognized = sorted(columns - UPLOAD_COLUMNS - EXCLUDED_MODEL_FIELDS)
     if unrecognized:
         names = ", ".join(_unrecognized_column(column) for column in unrecognized)
         errors.append(f"The upload has unrecognized columns: {names}.")
@@ -229,6 +242,30 @@ def _base_record(row):
         field = PendingCompany._meta.get_field(field_name)
         record[field_name] = None if field.null else ""
     return record
+
+
+def _url_errors(record, row_number) -> list[str]:
+    """Return row errors for a products page URL that is not a full https:// URL."""
+    value = record.get("ProductsPageUrl")
+    if _is_missing(value):
+        return []
+    try:
+        validate_https_url(value)
+    except ValidationError:
+        return [f"Row {row_number}: ProductsPageUrl must be a full https:// URL."]
+    return []
+
+
+def _clean_location(record, row_number) -> list[str]:
+    """Store a USPS State code and return row errors for a bad USA State or ZIP."""
+    state, zip_code, errors = clean_location(
+        record.get("Country"), record.get("State"), record.get("ZIP")
+    )
+    record["State"], record["ZIP"] = state, zip_code
+    return [
+        f"Row {row_number}: {field_name} is invalid. {message}"
+        for field_name, message in errors.items()
+    ]
 
 
 def _reference_id(value):
@@ -300,10 +337,67 @@ def _row_errors_message(errors):
     return "\n".join(lines)
 
 
+def _cell_reference_ids(field_name, value, row_number):
+    """Parse a semicolon-separated cell into unique reference IDs."""
+    if _is_missing(value):
+        return []
+    parts = value.split(ID_SEPARATOR) if isinstance(value, str) else [value]
+    ids = []
+    for part in parts:
+        if isinstance(part, str):
+            part = part.strip()
+            if not part:
+                continue
+        pk = _reference_id(part)
+        if pk is None:
+            raise UploadValidationError(
+                f"Row {row_number}: {field_name} must contain IDs separated by semicolons."
+            )
+        ids.append(pk)
+    return list(dict.fromkeys(ids))
+
+
+def _many_to_many_references(dataframe, row_numbers, errors):
+    """Validate many-to-many cells and return each row's reference IDs.
+
+    Appends a row error to ``errors`` for each bad cell or unknown ID.
+
+    Returns:
+        One mapping of field name to IDs per row, in input order.
+    """
+    columns = [field for field in MANY_TO_MANY_FIELDS if field in dataframe.columns]
+    references = [{} for _ in row_numbers]
+    for field_name in columns:
+        for row_refs, row_number, value in zip(
+            references, row_numbers, dataframe[field_name], strict=True
+        ):
+            try:
+                ids = _cell_reference_ids(field_name, value, row_number)
+            except UploadValidationError as error:
+                errors.append(str(error))
+                continue
+            if ids:
+                row_refs[field_name] = ids
+
+        requested = {pk for row_refs in references for pk in row_refs.get(field_name, ())}
+        if not requested:
+            continue
+        model = PendingCompany._meta.get_field(field_name).related_model
+        existing = set(model.objects.filter(pk__in=requested).values_list("pk", flat=True))
+        for row_refs, row_number in zip(references, row_numbers, strict=True):
+            missing = [pk for pk in row_refs.get(field_name, ()) if pk not in existing]
+            if missing:
+                errors.append(f"Row {row_number}: {field_name} ID {missing[0]} does not exist.")
+    return references
+
+
 def _validated_records(dataframe):
-    """Validate every row and return constructor records in input order.
+    """Validate every row in input order.
 
     Collects every row problem so one failed upload reports all of them.
+
+    Returns:
+        Constructor records and the matching many-to-many reference IDs.
     """
     rows = [
         (row_number, _base_record(row))
@@ -319,6 +413,8 @@ def _validated_records(dataframe):
             if _is_missing(record.get(field_name)):
                 errors.append(f"Row {row_number}: {field_name} is required.")
         errors.extend(_length_errors(record, row_number))
+        errors.extend(_url_errors(record, row_number))
+        errors.extend(_clean_location(record, row_number))
         for field_name, model in FOREIGN_KEY_MODELS.items():
             try:
                 record[field_name] = _resolve_reference(
@@ -326,16 +422,19 @@ def _validated_records(dataframe):
                 )
             except UploadValidationError as error:
                 errors.append(str(error))
+    references = _many_to_many_references(
+        dataframe, [row_number for row_number, _ in rows], errors
+    )
     if errors:
         raise UploadValidationError(_row_errors_message(errors), errors)
-    return records
+    return records, references
 
 
 @transaction.atomic
 def import_pending_companies(dataframe):
     """Validate and atomically create pending companies and upload indexes."""
     validate_upload_columns(dataframe)
-    records = _validated_records(dataframe)
+    records, references = _validated_records(dataframe)
     batch_id = uuid.uuid4()
     staged = [PendingCompany(import_batch_id=batch_id, **record) for record in records]
     PendingCompany.objects.bulk_create(staged, batch_size=IMPORT_BATCH_SIZE)
@@ -345,6 +444,7 @@ def import_pending_companies(dataframe):
     if len(persisted) != len(staged):
         raise RuntimeError("The number of staged rows did not match the uploaded rows.")
 
+    bulk_add_references(zip(persisted, references, strict=True), IMPORT_BATCH_SIZE)
     UploadIndex.objects.bulk_create(
         (UploadIndex(pendingID=str(company.pk)) for company in persisted),
         batch_size=IMPORT_BATCH_SIZE,
@@ -441,9 +541,7 @@ def _pending_batch_changes(batch):
 
 
 def approve_upload_batch(batch) -> int:
-    """Publish the pending companies of one upload batch.
-
-    Uploads stage concrete fields only, so no many-to-many values are copied.
+    """Publish the pending companies of one upload batch with their reference links.
 
     Returns:
         The number of companies created.
@@ -453,17 +551,30 @@ def approve_upload_batch(batch) -> int:
         if not changes:
             return 0
 
+        pending = [change.pending_company for change in changes]
+        prefetch_related_objects(pending, *MANY_TO_MANY_FIELDS)
         approval_time = timezone.now()
         companies = [
-            Company(
-                **change.pending_company.shared_concrete_field_values(
-                    Company, excluded_fields={"lastUpdated"}
+            (
+                Company(
+                    **company.shared_concrete_field_values(
+                        Company, excluded_fields={"lastUpdated"}
+                    ),
+                    lastUpdated=approval_time,
                 ),
-                lastUpdated=approval_time,
+                reference_ids(company),
             )
-            for change in changes
+            for company in pending
         ]
-        Company.objects.bulk_create(companies, batch_size=IMPORT_BATCH_SIZE)
+        Company.objects.bulk_create(
+            [company for company, references in companies if not references],
+            batch_size=IMPORT_BATCH_SIZE,
+        )
+        # MySQL bulk inserts return no IDs, so save linked companies one at a time.
+        linked = [(company, references) for company, references in companies if references]
+        for company, _ in linked:
+            company.save()
+        bulk_add_references(linked, IMPORT_BATCH_SIZE)
         PendingChanges.objects.filter(pk__in=[change.pk for change in changes]).update(
             status=PendingChanges.PendingStatus.APPROVED
         )

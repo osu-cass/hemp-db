@@ -47,6 +47,7 @@ from .models import (
 from .permissions import EDIT_COMPANIES
 from .upload import (
     IMPORT_BATCH_SIZE,
+    TEXT_COLUMNS,
     UploadValidationError,
     approve_upload_batch,
     cancel_pending_companies,
@@ -103,7 +104,9 @@ class UploadParsingTests(SimpleTestCase):
 
         read_upload_dataframe(uploaded_file)
 
-        read_excel.assert_called_once_with(uploaded_file, engine="openpyxl")
+        read_excel.assert_called_once_with(
+            uploaded_file, engine="openpyxl", dtype=TEXT_COLUMNS
+        )
 
     def test_reports_csv_parser_line_and_reason(self):
         """Pass pandas' line and reason through without its tokenizer prefix."""

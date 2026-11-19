@@ -10,7 +10,11 @@
         {% for field, value in context.fields %}
             <tr>
                 <td>{{ field }}</td>
+                {% if field == 'ProductsPageUrl' %}
+                <td>{% if value %}{% include "partials/products_page_link.html" with url=value show_destination=True %}{% endif %}</td>
+                {% else %}
                 <td>{{ value }}</td>
+                {% endif %}
             </tr>
         {% endfor %}
     </tbody>

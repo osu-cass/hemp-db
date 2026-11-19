@@ -25,22 +25,11 @@
 
     {% csrf_token %}
     <div style="display: block; margin-left: 10px; margin-right: 10px;">
-      {% for field in form %}
-        {% if field.field.required %}
-          <p>* {{ field.label_tag }}</p>
-        {% else %}
-          <p> {{ field.label_tag }} </p>
-        {% endif %}
-        <p> {{ field }} </p>
-      {% endfor %}
+      {% include "partials/company_form_sections.html" %}
 
-      {% if form.errors %}
-        {% for field in form %}
-          {% for error in field.errors %}
-            <p> {{ error }} </p>
-          {% endfor %}
-        {% endfor %}
-      {% endif %}
+      {% for error in form.non_field_errors %}
+        <p class="text-danger small"> {{ error }} </p>
+      {% endfor %}
     </div>
     <div class="modalFooter">
       <button type="submit" class="btn btn-danger" value="Submit" style="float: right; margin: 5px;">Submit</button>

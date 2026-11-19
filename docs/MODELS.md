@@ -19,10 +19,12 @@ This is the main model representing the bulk of the data we store. Since the CMC
 | Sales           | Annual revenue                        |
 | Product         |                                       |
 | City            |                                       |
-| State           |                                       |
+| State           | USPS code for USA companies, else free text |
+| ZIP             | Optional; 5 digits or ZIP+4 for USA companies |
 | Country         |                                       |
 | Website         |                                       |
 | Products        |                                       |
+| ProductsPageUrl | Optional https:// products page link  |
 | sasContact      |                                       |
 | Description     | Description of company                |
 | pubPriv         | Public or private company             |

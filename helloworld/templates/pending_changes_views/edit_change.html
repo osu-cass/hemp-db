@@ -13,8 +13,13 @@
         {% for field, company_value, pending_value, is_different in context.fields %}
         <tr class="{% if is_different %}highlight{% endif %}">
             <td>{{ field }}</td>
+            {% if field == 'ProductsPageUrl' %}
+            <td>{% if company_value %}{% include "partials/products_page_link.html" with url=company_value show_destination=True %}{% endif %}</td>
+            <td>{% if pending_value %}{% include "partials/products_page_link.html" with url=pending_value show_destination=True %}{% endif %}</td>
+            {% else %}
             <td>{{ company_value }}</td>
             <td>{{ pending_value }}</td>
+            {% endif %}
         </tr>
         {% endfor %}
     </tbody>
