@@ -17,6 +17,7 @@ FILTER_PARAMETERS = {
     "Stage": "stage",
     "productGroup": "product_group",
     "Solutions": "solution",
+    "State": "state",
 }
 
 # Separates reference IDs within one spreadsheet cell.
@@ -26,7 +27,7 @@ EMPTY_LABEL = "--"
 
 
 def filter_companies(companies, data):
-    """Apply the submitted reference filters to a company queryset.
+    """Apply the submitted filters to a company queryset.
 
     Args:
         companies: Company queryset to narrow.

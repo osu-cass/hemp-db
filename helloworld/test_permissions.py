@@ -12,7 +12,6 @@ from django.db.migrations.executor import MigrationExecutor
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client, TestCase, TransactionTestCase
 from django.urls import reverse
-from django.utils import timezone
 
 from .models import (
     Category,
@@ -35,9 +34,10 @@ from .permissions import (
     REVIEW_COMPANY_CHANGES,
     users_with_application_permission,
 )
+from .test_support import CompanyWorkflowHelpers
 
 
-class PermissionWorkflowTests(TestCase):
+class PermissionWorkflowTests(CompanyWorkflowHelpers, TestCase):
     """Cover the application permission boundaries."""
 
     reference_tables = (
@@ -91,31 +91,6 @@ class PermissionWorkflowTests(TestCase):
             EDIT_METADATA,
         )
 
-    def _user(self, username, **flags):
-        """Create an active test user."""
-        return get_user_model().objects.create_user(
-            username=username,
-            password="password",
-            **flags,
-        )
-
-    def _grant(self, user, *permissions):
-        """Grant application permissions from their declared owning models."""
-        models = {
-            EDIT_COMPANIES: Company,
-            REVIEW_COMPANY_CHANGES: Company,
-            EDIT_METADATA: Category,
-        }
-        user.user_permissions.add(
-            *[
-                Permission.objects.get(
-                    content_type=ContentType.objects.get_for_model(models[permission]),
-                    codename=permission.rsplit(".", 1)[1],
-                )
-                for permission in permissions
-            ]
-        )
-
     def _pending_change(self, author=None, name="Pending company"):
         """Create a minimal pending company proposal."""
         pending = PendingCompany.objects.create(
@@ -152,22 +127,6 @@ class PermissionWorkflowTests(TestCase):
             codename=codename,
             defaults={"name": f"Legacy {codename}"},
         )[0]
-
-    def _company_submission(self):
-        """Return valid data for the company submission form."""
-        status = Status.objects.create(status="Active")
-        industry = Industry.objects.create(industry="Hemp")
-        grower = Grower.objects.create(grower="Grower")
-        return {
-            "SrcKey": "",
-            "Name": "Submitted company",
-            "Address": "123 Main St",
-            "Country": "USA",
-            "Status": status.pk,
-            "Industry": industry.pk,
-            "Grower": grower.pk,
-            "dateCreated": timezone.now().isoformat(),
-        }
 
     def _upload_file(self):
         """Return a CSV upload with valid reference-table IDs."""

@@ -42,3 +42,44 @@
 .changes-comparison .highlight {
   background-color: #ffdddd;
 }
+
+/* Companies filter modal: a grid keeps each group in a fixed spot as values change. */
+.filter-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 1.5rem 2rem;
+  margin-bottom: 1rem;
+}
+
+.filter-group {
+  margin: 0;
+  min-width: 0;
+}
+
+.filter-group legend {
+  float: none;
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 0.375rem;
+}
+
+.filter-group label {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.125rem 0;
+  overflow-wrap: anywhere;
+}
+
+.filter-group legend label {
+  display: inline;
+  padding: 0;
+}
+
+/* Chips remove a filter value on click, so hover and focus show it in red. */
+.filter-chip:hover,
+.filter-chip:focus-visible {
+  color: var(--bs-danger);
+  border-color: var(--bs-danger);
+  background-color: var(--bs-danger-bg-subtle);
+}
