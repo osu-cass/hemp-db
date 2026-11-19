@@ -69,12 +69,10 @@
   overflow-wrap: anywhere;
 }
 
-.filter-state {
-  border-top: 1px solid var(--bs-border-color);
-  margin-top: 0.5rem;
-  padding-top: 1rem;
-}
-
-.filter-state .form-select {
-  max-width: 22rem;
+/* Chips remove a filter value on click, so hover and focus show it in red. */
+.filter-chip:hover,
+.filter-chip:focus-visible {
+  color: var(--bs-danger);
+  border-color: var(--bs-danger);
+  background-color: var(--bs-danger-bg-subtle);
 }

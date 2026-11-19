@@ -67,7 +67,7 @@ for (const select of document.querySelectorAll("select[multiple][data-chip-place
     chips.replaceChildren(...options.filter((option) => option.selected).map((option) => {
       const chip = document.createElement("button");
       chip.type = "button";
-      chip.className = "btn btn-sm btn-outline-secondary rounded-pill";
+      chip.className = "btn btn-sm btn-outline-secondary rounded-pill filter-chip";
       chip.textContent = `${option.text} ×`;
       chip.setAttribute("aria-label", `Remove ${option.text}`);
       chip.addEventListener("click", () => {
