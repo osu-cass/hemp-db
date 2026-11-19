@@ -37,8 +37,8 @@ FOREIGN_KEY_MODELS = {
 }
 EXCLUDED_MODEL_FIELDS = frozenset({"id", "dateCreated", "lastUpdated", "import_batch_id"})
 IMPORT_BATCH_SIZE = 500
-# Read as text so ZIP codes keep leading zeros.
-TEXT_COLUMNS = {"ZIP": str}
+# Read as text so ZIP codes keep leading zeros and a numeric State isn't dropped.
+TEXT_COLUMNS = {"State": str, "ZIP": str}
 
 SPREADSHEET_FIELDS = frozenset(
     field.name
