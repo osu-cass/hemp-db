@@ -268,6 +268,11 @@ class ZipStateUploadTests(UploadTestBase):
                 self.assertIn(f"Row 3: {field_name} is invalid.", str(raised.exception))
                 self.assertFalse(PendingCompany.objects.exists())
 
+    def test_rejects_numeric_us_state(self):
+        """Treat a State of 0 as text, not a blank cell."""
+        with self.assertRaisesMessage(UploadValidationError, "Row 2: State is invalid."):
+            self._upload(["USA,0,97331"])
+
     def test_upload_without_zip_column_imports(self):
         """Import a frame with no State or ZIP column."""
         import_pending_companies(self._dataframe(1))
@@ -305,6 +310,7 @@ class StateMigrationTests(TestCase):
             ("USA", "Washington/Arizona"): ("USA", "Washington/Arizona"),
             ("--", "Ontario"): ("--", "Ontario"),
             ("--", ""): ("--", ""),
+            (".", "Oregon"): (".", "Oregon"),
             ("Canada", "BC"): ("Canada", "BC"),
         }
         created = {key: self._company(*key) for key in rows}

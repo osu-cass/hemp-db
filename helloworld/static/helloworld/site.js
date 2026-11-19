@@ -28,18 +28,22 @@ for (const field of document.querySelectorAll("[data-us-state]")) {
   const sync = () => {
     const isUs = usCountries.includes(locationKey(country.value));
     const [active, inactive] = isUs ? [select, input] : [input, select];
-    if (active.hidden) {
-      // Carry the entered State over; a name the dropdown lacks leaves it blank.
-      const value = locationKey(inactive.value);
-      const option = isUs && [...select.options].find((choice) => !choice.hasAttribute("data-unmapped") && (
+    if (isUs && select.hidden) {
+      // Carry typed text into the dropdown; a name it lacks leaves it blank.
+      const value = locationKey(input.value);
+      const option = [...select.options].find((choice) => !choice.hasAttribute("data-unmapped") && (
         locationKey(choice.value) === value || locationKey(choice.text.replace(/ \([A-Z]{2}\)$/, "")) === value
       ));
-      active.value = isUs ? option?.value ?? "" : inactive.value || active.value;
+      select.value = option?.value ?? "";
     }
     active.hidden = active.disabled = false;
     inactive.hidden = inactive.disabled = true;
     active.id = field.dataset.fieldId;
     inactive.removeAttribute("id");
   };
+  // The text box tracks dropdown choices, so switching back never restores a cleared State.
+  select.addEventListener("change", () => {
+    input.value = select.value;
+  });
   country.addEventListener("input", sync);
 }

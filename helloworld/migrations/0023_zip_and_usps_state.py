@@ -2,7 +2,7 @@ from collections import Counter
 
 from django.db import migrations, models
 
-from helloworld.locations import US_COUNTRY, is_us_country, location_key, usps_state_code
+from helloworld.locations import US_COUNTRY, is_us_country, usps_state_code
 
 # Country values on rows that are US companies by State in the imported data.
 PLACEHOLDER_COUNTRIES = frozenset({"", "--", "1"})
@@ -17,7 +17,7 @@ def convert_us_states(apps, schema_editor):
         for row in model.objects.only("pk", "Country", "State").iterator():
             if not row.State.strip() or not (
                 is_us_country(row.Country)
-                or location_key(row.Country) in PLACEHOLDER_COUNTRIES
+                or row.Country.strip() in PLACEHOLDER_COUNTRIES
             ):
                 continue
             code = usps_state_code(row.State)
