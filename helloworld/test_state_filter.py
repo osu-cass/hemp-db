@@ -71,6 +71,7 @@ class StateFilterTests(CompanyWorkflowHelpers, TestCase):
 
         self.assertContains(response, '<option value="OR" selected>Oregon (OR)</option>')
         self.assertContains(response, '<option value="WA">Washington (WA)</option>')
+        self.assertContains(response, '<legend><label for="id_state">State</label></legend>')
 
     def test_export_applies_state_filter(self):
         """Export only the companies in the selected states."""

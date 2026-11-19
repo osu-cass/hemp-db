@@ -1,7 +1,8 @@
 {# One companies filter as a titled group. Pass a one-field filter form as filter_form. #}
 {% for field in filter_form %}
 <fieldset class="filter-group">
-  <legend>{{ field.label }}</legend>
+  {# A select needs a real label; a checkbox list is named by its legend #}
+  <legend>{% if field.widget_type == "selectmultiple" %}<label for="{{ field.id_for_label }}">{{ field.label }}</label>{% else %}{{ field.label }}{% endif %}</legend>
   {{ field }}
 </fieldset>
 {% endfor %}
