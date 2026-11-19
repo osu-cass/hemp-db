@@ -18,24 +18,14 @@
   <h4 class="modal-title">Edit</h4>
 
   <p>
-    * = required
+    <span class="text-danger" aria-hidden="true">*</span> = required
   </p>
 
   <form id="upload_form" method="post" action="{% url 'edit-company' company.id %}">
 
     {% csrf_token %}
     <div style="display: block; margin-left: 10px; margin-right: 10px;">
-      {% for field in form %}
-        {% if field.field.required %}
-          <p>* {{ field.label_tag }}</p>
-        {% else %}
-          <p> {{ field.label_tag }} </p>
-        {% endif %}
-        <p> {{ field }} </p>
-        {% for error in field.errors %}
-          <p class="text-danger small"> {{ field.label }}: {{ error }} </p>
-        {% endfor %}
-      {% endfor %}
+      {% include "partials/company_form_sections.html" %}
 
       {% for error in form.non_field_errors %}
         <p class="text-danger small"> {{ error }} </p>

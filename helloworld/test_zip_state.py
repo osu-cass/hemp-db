@@ -149,7 +149,7 @@ class EditFormTests(ZipStateFormTestBase):
         """Enable the USPS dropdown and disable the text box for a USA company."""
         response = self.client.get(reverse("edit-company", args=[self.company.pk]))
 
-        self.assertContains(response, '<label for="id_State">State:</label>', html=True)
+        self.assertContains(response, '<label for="id_State" class="form-label d-block mb-1">State</label>', html=True)
         self.assertContains(response, '<select name="State" class="form-select" id="id_State">')
         self.assertContains(response, '<option value="OR" selected>Oregon (OR)</option>', html=True)
         self.assertContains(response, 'disabled hidden>')

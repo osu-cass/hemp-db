@@ -16,6 +16,27 @@ from .locations import US_COUNTRY_ALIASES, US_STATE_CHOICES, US_STATES, clean_lo
 from .validators import HTTPS_URL_MESSAGE
 
 
+# Company form sections in display order (AB#5402). Each editable field appears once.
+COMPANY_FIELD_SECTIONS = (
+    ("Identity", (
+        "Name", "Industry", "Status", "Grower", "Website", "Description", "Founded",
+        "Employees", "parentCompany", "pubPriv", "Ticker", "Naics",
+    )),
+    ("Location", (
+        "Headquarters", "Address", "City", "State", "ZIP", "Country", "Latitude", "Longitude",
+    )),
+    ("Sales and products", (
+        "Sales", "Product", "Products", "ProductsPageUrl", "productName", "SKU", "onMarket",
+        "productGroup",
+    )),
+    ("Classification", ("Category", "stakeholderGroup", "Stage", "Solutions")),
+    ("Contact", ("Phone", "Email", "Principal", "Stakeholder", "sasContact")),
+    ("Operations", ("processingFocus", "facilitySize", "biomassCap", "extractionType", "GMP")),
+    ("Notes", ("Notes", "news", "reviews")),
+    ("Record", ("SrcKey", "dateCreated")),
+)
+
+
 class StateWidget(forms.TextInput):
     """Render State as a USPS dropdown for USA companies and free text otherwise."""
 
@@ -150,6 +171,10 @@ class PendingCompanyForm(forms.ModelForm):
         self.fields['Longitude'].label = "Longitude (Up to 6 decimals)"
         self.fields['State'].label = "State"
         self.fields['State'].widget.us_country = is_us_country(self['Country'].value())
+
+    def sections(self):
+        """Return (title, bound fields) pairs in display order."""
+        return [(title, [self[name] for name in names]) for title, names in COMPANY_FIELD_SECTIONS]
 
     def clean(self):
         """Store a USPS State code and check ZIP format for USA companies."""
