@@ -17,6 +17,7 @@ from .forms import FilterStakeholderGroupForm
 from .forms import FilterStageForm
 from .forms import FilterProductGroupForm
 from .forms import FilterSolutionForm
+from .forms import FilterStateForm
 from .forms import ResourceForm
 from .models import Company
 from .models import PendingCompany
@@ -306,6 +307,7 @@ def companies(request: HttpRequest) -> HttpResponse:
     filterStageForm = FilterStageForm()
     filterProductGroupForm = FilterProductGroupForm()
     filterSolutionForm = FilterSolutionForm()
+    filterStateForm = FilterStateForm()
 
     data = zip(companies, solutions, categories, productGroups, stakeholderGroups, stages)
 
@@ -322,7 +324,8 @@ def companies(request: HttpRequest) -> HttpResponse:
                                               'filterStakeholderGroupForm': filterStakeholderGroupForm,
                                               'filterStageForm': filterStageForm,
                                               'filterProductGroupForm': filterProductGroupForm,
-                                              'filterSolutionForm': filterSolutionForm
+                                              'filterSolutionForm': filterSolutionForm,
+                                              'filterStateForm': filterStateForm,
                                               })
 
 @require_application_permission(EDIT_COMPANIES)
@@ -579,7 +582,8 @@ def companies_filtered(request: HttpRequest) -> HttpResponse:
         'stakeholderGroup': [],
         'Stage': [],
         'productGroup': [],
-        'Solutions': []
+        'Solutions': [],
+        'State': [],
     }
     
     if "item-filter" in request.POST:
@@ -590,6 +594,7 @@ def companies_filtered(request: HttpRequest) -> HttpResponse:
         stage_ids = request.POST.getlist("stage")
         product_ids = request.POST.getlist("product_group")
         solution_ids = request.POST.getlist("solution")
+        state_codes = request.POST.getlist("state")
         filter_lists = [
             (status_ids, "Status"), 
             (industry_ids, "Industry"), 
@@ -597,7 +602,8 @@ def companies_filtered(request: HttpRequest) -> HttpResponse:
             (stakeholder_group_ids, "stakeholderGroup"),
             (stage_ids, "Stage"),
             (product_ids, "productGroup"),
-            (solution_ids, "Solutions")
+            (solution_ids, "Solutions"),
+            (state_codes, "State"),
         ]
         filter_dict = {field: lst for lst, field in filter_lists}
         for lst, field in filter_lists:
@@ -626,6 +632,7 @@ def companies_filtered(request: HttpRequest) -> HttpResponse:
     filterStageForm = FilterStageForm(initial={'stage': filter_dict['Stage']})
     filterProductGroupForm = FilterProductGroupForm(initial={'product_group': filter_dict['productGroup']})
     filterSolutionForm = FilterSolutionForm(initial={'solution': filter_dict['Solutions']})
+    filterStateForm = FilterStateForm(initial={'state': filter_dict['State']})
 
     data = zip(companies, solutions, categories, productGroups, stakeholderGroups, stages)
 
@@ -640,7 +647,8 @@ def companies_filtered(request: HttpRequest) -> HttpResponse:
                                               'filterStakeholderGroupForm': filterStakeholderGroupForm,
                                               'filterStageForm': filterStageForm,
                                               'filterProductGroupForm': filterProductGroupForm,
-                                              'filterSolutionForm': filterSolutionForm
+                                              'filterSolutionForm': filterSolutionForm,
+                                              'filterStateForm': filterStateForm,
                                               })
 
 @require_application_permission(EDIT_COMPANIES)
@@ -688,6 +696,8 @@ def export_companies(request: HttpRequest) -> HttpResponse:
         if "solution" in request.POST:
             solution_ids = request.POST.getlist("solution")
             companies = companies.filter(Solutions__in=solution_ids)
+        if "state" in request.POST:
+            companies = companies.filter(State__in=request.POST.getlist("state"))
         if "q" in request.POST:
             query = request.POST["q"]
             companies = companies.filter(Name__icontains=query)
