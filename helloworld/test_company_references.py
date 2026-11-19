@@ -242,6 +242,18 @@ class ReferenceUploadTests(ReferenceDataMixin, TestCase):
 
         self.assertFalse(PendingCompany.objects.exists())
 
+    def test_reference_errors_join_other_row_errors(self):
+        """Report every unknown reference ID together with the other row problems."""
+        dataframe = self._dataframe(Category="999998;999999")
+        dataframe["ZIP"] = "123"
+
+        with self.assertRaises(UploadValidationError) as raised:
+            import_pending_companies(dataframe)
+
+        self.assertIn("Row 2: ZIP is invalid.", str(raised.exception))
+        self.assertIn("Row 2: Category ID 999998 does not exist.", str(raised.exception))
+        self.assertIn("Row 2: Category ID 999999 does not exist.", str(raised.exception))
+
     def test_malformed_id_names_row_and_column(self):
         """Reject a cell that is not a list of whole-number IDs."""
         with self.assertRaisesMessage(
