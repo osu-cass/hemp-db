@@ -47,3 +47,45 @@ for (const field of document.querySelectorAll("[data-us-state]")) {
   });
   country.addEventListener("input", sync);
 }
+
+// Turn a multi-select into an "Add" dropdown plus removable chips. The hidden
+// select still holds the chosen values, so the form submits as before.
+for (const select of document.querySelectorAll("select[multiple][data-chip-placeholder]")) {
+  const picker = document.createElement("select");
+  picker.className = "form-select";
+  picker.id = select.id;
+  select.removeAttribute("id");
+  const chips = document.createElement("div");
+  chips.className = "d-flex flex-wrap gap-2 mt-2";
+
+  const render = () => {
+    const options = [...select.options];
+    picker.replaceChildren(
+      new Option(select.dataset.chipPlaceholder, ""),
+      ...options.filter((option) => !option.selected).map((option) => new Option(option.text, option.value)),
+    );
+    chips.replaceChildren(...options.filter((option) => option.selected).map((option) => {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "btn btn-sm btn-outline-secondary rounded-pill";
+      chip.textContent = `${option.text} ×`;
+      chip.setAttribute("aria-label", `Remove ${option.text}`);
+      chip.addEventListener("click", () => {
+        option.selected = false;
+        render();
+      });
+      return chip;
+    }));
+  };
+
+  picker.addEventListener("change", () => {
+    const option = [...select.options].find((choice) => choice.value === picker.value);
+    if (option) {
+      option.selected = true;
+    }
+    render();
+  });
+  select.hidden = true;
+  select.after(picker, chips);
+  render();
+}
