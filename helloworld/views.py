@@ -279,7 +279,7 @@ def companies(request: HttpRequest) -> HttpResponse:
             company = form.save(commit=False) # Don't save to DB yet
 
             if not company.Latitude and not company.Longitude:
-                lat, lng = geocode_location(company.Address, company.City, company.State, company.Country)
+                lat, lng = geocode_location(company.Address, company.City, company.State, company.ZIP, company.Country)
                 company.Latitude = lat
                 company.Longitude = lng
 
@@ -344,7 +344,7 @@ def edit_company(request: HttpRequest, id: int) -> HttpResponse:
         # If location fields have changed, geocode new lat/lng
         location_changed = check_if_location_edited(original_company, new_company)
         if location_changed:
-            lat, lng = geocode_location(new_company.Address, new_company.City, new_company.State, new_company.Country)
+            lat, lng = geocode_location(new_company.Address, new_company.City, new_company.State, new_company.ZIP, new_company.Country)
             new_company.Latitude = lat
             new_company.Longitude = lng
 
@@ -368,7 +368,7 @@ def edit_company(request: HttpRequest, id: int) -> HttpResponse:
 def check_if_location_edited(company: Company, new_company: PendingCompany) -> bool:
     """
     Given a company and it's pending company (edits made), checks if
-    the Address, City, State, or Country were changed. If any of these
+    the Address, City, State, ZIP, or Country were changed. If any of these
     have changed and the Latitude and Longitude were NOT changed,
     returns True. Otherwise False.
 
@@ -383,7 +383,7 @@ def check_if_location_edited(company: Company, new_company: PendingCompany) -> b
     bool: True if user changed any location field without updating latitude/longitude
           False if user changed latitude/longitude, or didn't edit any location fields
     """
-    location_fields = ['Address', 'City', 'State', 'Country']
+    location_fields = ['Address', 'City', 'State', 'ZIP', 'Country']
     lat_lng_fields = ['Latitude', 'Longitude']
     a = b = False
 
@@ -1227,7 +1227,7 @@ def edit_resource(request: HttpRequest, id: int) -> HttpResponse:
     
     return render(request, 'edit_resource.html', {'form': form, 'resource': resource})
 
-def geocode_location(address: str, city: str, state: str, country: str) -> tuple[Decimal, Decimal]:
+def geocode_location(address: str, city: str, state: str, zip_code: str, country: str) -> tuple[Decimal, Decimal]:
     """
     Takes in address components, cleans them, constructs a geocoding query,
     and returns the latitude and longitude using geocoder.arcgis(). Returns
@@ -1237,6 +1237,7 @@ def geocode_location(address: str, city: str, state: str, country: str) -> tuple
     address (str): Company/PendingCompany.Address
     city (str): Company/PendingCompany.City
     state (str): Company/PendingCompany.State
+    zip_code (str): Company/PendingCompany.ZIP
     country (str): Company/PendingCompany.Country
 
     Returns:
@@ -1254,6 +1255,7 @@ def geocode_location(address: str, city: str, state: str, country: str) -> tuple
     cleaned_address = clean_value(address)
     cleaned_city = clean_value(city)
     cleaned_state = clean_value(state)
+    cleaned_zip = clean_value(zip_code)
     cleaned_country = clean_value(country)
 
     # Construct the geocoding query
@@ -1264,6 +1266,8 @@ def geocode_location(address: str, city: str, state: str, country: str) -> tuple
         query_parts.append(cleaned_city)
     if cleaned_state:
         query_parts.append(cleaned_state)
+    if cleaned_zip:
+        query_parts.append(cleaned_zip)
     if cleaned_country:
         query_parts.append(cleaned_country)
 

@@ -43,6 +43,7 @@ from .models import (
 from .permissions import EDIT_COMPANIES
 from .upload import (
     IMPORT_BATCH_SIZE,
+    TEXT_COLUMNS,
     UploadValidationError,
     approve_upload_batch,
     import_pending_companies,
@@ -90,7 +91,9 @@ class UploadParsingTests(SimpleTestCase):
 
         read_upload_dataframe(uploaded_file)
 
-        read_excel.assert_called_once_with(uploaded_file, engine="openpyxl")
+        read_excel.assert_called_once_with(
+            uploaded_file, engine="openpyxl", dtype=TEXT_COLUMNS
+        )
 
     def test_reports_missing_required_columns(self):
         """Reject a file before any database import when headers are incomplete."""

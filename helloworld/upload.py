@@ -20,6 +20,7 @@ from .models import (
     Status,
     UploadIndex,
 )
+from .locations import clean_location
 from .signals import invalidate_map_cache
 from .validators import validate_https_url
 
@@ -36,6 +37,8 @@ FOREIGN_KEY_MODELS = {
 }
 EXCLUDED_MODEL_FIELDS = frozenset({"id", "dateCreated", "lastUpdated", "import_batch_id"})
 IMPORT_BATCH_SIZE = 500
+# Read as text so ZIP codes keep leading zeros and a numeric State isn't dropped.
+TEXT_COLUMNS = {"State": str, "ZIP": str}
 
 SPREADSHEET_FIELDS = frozenset(
     field.name
@@ -78,7 +81,7 @@ def read_upload_dataframe(uploaded_file):
     if _is_xlsx(uploaded_file):
         _reset_file(uploaded_file)
         try:
-            dataframe = pd.read_excel(uploaded_file, engine="openpyxl")
+            dataframe = pd.read_excel(uploaded_file, engine="openpyxl", dtype=TEXT_COLUMNS)
         except ImportError as error:
             raise UploadValidationError(
                 "XLSX uploads require the openpyxl engine."
@@ -88,7 +91,7 @@ def read_upload_dataframe(uploaded_file):
     else:
         _reset_file(uploaded_file)
         try:
-            dataframe = pd.read_csv(uploaded_file, encoding="utf-8-sig")
+            dataframe = pd.read_csv(uploaded_file, encoding="utf-8-sig", dtype=TEXT_COLUMNS)
         except UnicodeDecodeError as error:
             raise UploadValidationError(
                 "CSV uploads must use UTF-8 encoding, including UTF-8 with a BOM."
@@ -151,6 +154,17 @@ def _url_errors(record, row_number) -> list[str]:
     return []
 
 
+def _clean_location(record, row_number) -> None:
+    """Store a USPS State code, or raise a row error for a bad USA State or ZIP."""
+    state, zip_code, errors = clean_location(
+        record.get("Country"), record.get("State"), record.get("ZIP")
+    )
+    if errors:
+        field_name, message = next(iter(errors.items()))
+        raise UploadValidationError(f"Row {row_number}: {field_name} is invalid. {message}")
+    record["State"], record["ZIP"] = state, zip_code
+
+
 def _reference_id(value):
     """Coerce a spreadsheet cell into a whole-number primary key, else None."""
     if isinstance(value, bool):
@@ -206,6 +220,7 @@ def _validated_records(dataframe):
                 raise UploadValidationError(f"Row {row_number}: {field_name} is required.")
         if errors := _url_errors(record, row_number):
             raise UploadValidationError(errors[0])
+        _clean_location(record, row_number)
         for field_name, model in FOREIGN_KEY_MODELS.items():
             record[field_name] = _resolve_reference(
                 field_name, model, record.get(field_name), row_number, caches[field_name]
