@@ -78,10 +78,7 @@
     loader.setAttribute("aria-busy", "true");
 
     try {
-      const response = await fetch(state.nextUrl, {
-        credentials: "same-origin",
-        headers: { "X-Requested-With": "XMLHttpRequest" },
-      });
+      const response = await fetch(state.nextUrl, { credentials: "same-origin" });
       if (!response.ok || response.redirected) {
         throw new Error(`Pending changes request failed: ${response.status}`);
       }
@@ -140,10 +137,13 @@
     }
   });
 
+  // Nested loaders may have finished while hidden, so re-watch them too.
   document.addEventListener("shown.bs.collapse", (event) => {
-    const loader = getCollapseLoader(event.target);
-    if (loader) {
-      watch(getState(loader));
+    for (const loader of event.target.querySelectorAll("[data-pending-loader]")) {
+      const state = loaderStates.get(loader);
+      if (state) {
+        watch(state);
+      }
     }
   });
 
