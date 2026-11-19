@@ -42,11 +42,11 @@ class StateFilterTests(CompanyWorkflowHelpers, TestCase):
             if f">{company.Name}<" in response.content.decode()
         }
 
-    def test_lists_states_that_have_companies(self):
-        """Offer each used State once, US codes with their name, sorted by label."""
+    def test_lists_us_states_that_have_companies(self):
+        """Offer each used USPS code once, by name, and leave out other countries' regions."""
         self.assertEqual(
             FilterStateForm().fields["state"].choices,
-            [("Ontario", "Ontario"), ("OR", "Oregon (OR)"), ("WA", "Washington (WA)")],
+            [("OR", "Oregon (OR)"), ("WA", "Washington (WA)")],
         )
 
     def test_filters_by_one_or_more_states(self):
@@ -55,8 +55,8 @@ class StateFilterTests(CompanyWorkflowHelpers, TestCase):
             self._names(self._filter(state=["OR"])), {"Oregon Active", "Oregon Inactive"}
         )
         self.assertEqual(
-            self._names(self._filter(state=["WA", "Ontario"])),
-            {"Washington Active", "Ontario Active"},
+            self._names(self._filter(state=["OR", "WA"])),
+            {"Oregon Active", "Oregon Inactive", "Washington Active"},
         )
 
     def test_combines_with_other_filters(self):
@@ -69,8 +69,8 @@ class StateFilterTests(CompanyWorkflowHelpers, TestCase):
         """Keep the chosen states checked after the page reloads."""
         response = self._filter(state=["OR"])
 
-        self.assertContains(response, 'value="OR" id="id_state_1" checked', html=False)
-        self.assertNotContains(response, 'value="WA" id="id_state_2" checked')
+        self.assertContains(response, '<option value="OR" selected>Oregon (OR)</option>')
+        self.assertContains(response, '<option value="WA">Washington (WA)</option>')
 
     def test_export_applies_state_filter(self):
         """Export only the companies in the selected states."""

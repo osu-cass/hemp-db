@@ -123,19 +123,22 @@ class FilterSolutionForm(forms.Form):
                                               required=True)
     
 class FilterStateForm(forms.Form):
-    state = forms.MultipleChoiceField(widget=forms.CheckboxSelectMultiple, required=True)
+    # site.js turns this into an "Add" dropdown with removable chips
+    state = forms.MultipleChoiceField(
+        widget=forms.SelectMultiple(attrs={"data-chip-placeholder": "Add a state"}),
+        required=False,
+    )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Only states that have at least one company; USPS codes show their name
-        states = (
-            Company.objects.exclude(State="").values_list("State", flat=True).distinct()
-        )
-        choices = [
-            (state, f"{US_STATES[state]} ({state})" if state in US_STATES else state)
-            for state in states
+        # US states that have at least one company; other countries' regions are free text
+        used = {
+            state.upper()
+            for state in Company.objects.filter(State__in=US_STATES).values_list("State", flat=True)
+        }
+        self.fields["state"].choices = [
+            choice for choice in US_STATE_CHOICES if choice[0] in used
         ]
-        self.fields["state"].choices = sorted(choices, key=lambda choice: choice[1].lower())
 
 class SearchForm(forms.Form):
     q = forms.CharField(label='Search', max_length=100, widget=forms.TextInput(attrs={'placeholder': 'Search by Name'}))
