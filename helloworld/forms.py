@@ -101,6 +101,21 @@ class FilterSolutionForm(forms.Form):
                                               widget=forms.CheckboxSelectMultiple,
                                               required=True)
     
+class FilterStateForm(forms.Form):
+    state = forms.MultipleChoiceField(widget=forms.CheckboxSelectMultiple, required=True)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Only states that have at least one company; USPS codes show their name
+        states = (
+            Company.objects.exclude(State="").values_list("State", flat=True).distinct()
+        )
+        choices = [
+            (state, f"{US_STATES[state]} ({state})" if state in US_STATES else state)
+            for state in states
+        ]
+        self.fields["state"].choices = sorted(choices, key=lambda choice: choice[1].lower())
+
 class SearchForm(forms.Form):
     q = forms.CharField(label='Search', max_length=100, widget=forms.TextInput(attrs={'placeholder': 'Search by Name'}))
 
