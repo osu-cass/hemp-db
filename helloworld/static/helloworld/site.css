@@ -42,3 +42,39 @@
 .changes-comparison .highlight {
   background-color: #ffdddd;
 }
+
+/* Companies filter modal: groups flow into as many columns as fit. */
+.filter-groups {
+  column-width: 15rem;
+  column-gap: 2rem;
+}
+
+.filter-group {
+  break-inside: avoid;
+  margin-bottom: 1.5rem;
+}
+
+.filter-group legend {
+  float: none;
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 0.375rem;
+}
+
+.filter-group label {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.125rem 0;
+  overflow-wrap: anywhere;
+}
+
+.filter-state {
+  border-top: 1px solid var(--bs-border-color);
+  margin-top: 0.5rem;
+  padding-top: 1rem;
+}
+
+.filter-state .form-select {
+  max-width: 22rem;
+}

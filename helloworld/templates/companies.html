@@ -196,17 +196,21 @@
         <div class="modal-body">
           <form method="post" action="/companies/search/">
             {% csrf_token %}
-            <div class="d-block gap-3">
-              {{ filterStatusForm.as_p }}
-              {{ filterIndustryForm.as_p }}
-              {{ filterCategoryForm.as_p }}
-              {{ filterStakeholderGroupForm.as_p }}
-              {{ filterStageForm.as_p }}
-              {{ filterProductGroupForm.as_p }}
-              {{ filterSolutionForm.as_p }}
-              {{ filterStateForm.as_p }}
+            <div class="filter-groups">
+              {% include "partials/filter_group.html" with filter_form=filterStatusForm %}
+              {% include "partials/filter_group.html" with filter_form=filterIndustryForm %}
+              {% include "partials/filter_group.html" with filter_form=filterCategoryForm %}
+              {% include "partials/filter_group.html" with filter_form=filterStakeholderGroupForm %}
+              {% include "partials/filter_group.html" with filter_form=filterStageForm %}
+              {% include "partials/filter_group.html" with filter_form=filterProductGroupForm %}
+              {% include "partials/filter_group.html" with filter_form=filterSolutionForm %}
             </div>
-            <button class="float-end btn btn-secondary rounded-pill" type="submit" name="item-filter">Submit</button>
+            <div class="filter-state">
+              {% include "partials/filter_group.html" with filter_form=filterStateForm %}
+            </div>
+            <div class="d-flex justify-content-end">
+              <button class="btn btn-secondary rounded-pill" type="submit" name="item-filter">Submit</button>
+            </div>
           </form>
         </div>
       </div>

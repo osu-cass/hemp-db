@@ -73,6 +73,8 @@ for (const select of document.querySelectorAll("select[multiple][data-chip-place
       chip.addEventListener("click", () => {
         option.selected = false;
         render();
+        // The clicked chip is gone, so keep keyboard focus in the filter
+        picker.focus();
       });
       return chip;
     }));
