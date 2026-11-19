@@ -385,9 +385,11 @@ def _many_to_many_references(dataframe, row_numbers, errors):
         model = PendingCompany._meta.get_field(field_name).related_model
         existing = set(model.objects.filter(pk__in=requested).values_list("pk", flat=True))
         for row_refs, row_number in zip(references, row_numbers, strict=True):
-            missing = [pk for pk in row_refs.get(field_name, ()) if pk not in existing]
-            if missing:
-                errors.append(f"Row {row_number}: {field_name} ID {missing[0]} does not exist.")
+            errors.extend(
+                f"Row {row_number}: {field_name} ID {pk} does not exist."
+                for pk in row_refs.get(field_name, ())
+                if pk not in existing
+            )
     return references
 
 
