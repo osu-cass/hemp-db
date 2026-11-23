@@ -11,7 +11,7 @@ WORKDIR /app
 
 RUN groupadd --gid "${APP_GID}" app \
     && useradd --uid "${APP_UID}" --gid app --create-home app
-RUN python -m pip install --no-cache-dir --upgrade pip==26.2.1
+RUN python -m pip install --no-cache-dir --upgrade pip==26.3
 
 COPY requirements.txt requirements-dev.txt requirements-production.txt ./
 
