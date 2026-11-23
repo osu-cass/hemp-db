@@ -38,7 +38,7 @@ Cherish Despain, CMCI - *Research Assistant*
 
 ### Project Status
 
-The development of HempDB has gone through two iterations of the Oregon State University Senior Capstone Project, and it is expected to go through one more iteration during the 2025-2026 school year.
+HempDB originated as an Oregon State University Senior Capstone Project and has continued through multiple student teams.
 
 ## Value Proposition
 
@@ -81,7 +81,7 @@ In addition to filtering and exporting, insights into the industry can be made g
 
 ![company map](docs/images/map.png)
 
-Above is the HempDB map that allows anyone to filter companies by any of their attributes and displays markers in heatmaps to see regional trends and density.
+Above is the HempDB map, where anyone can filter companies by industry, category, stakeholder group, stage, and product group. Nearby markers are clustered to show regional distribution and density.
 
 ### Target Audience
 
@@ -91,7 +91,7 @@ HempDB aims to bring visibility to the industrial hemp industry. As a result, th
 
 | Technology                                                                                             | Description                                                                                                                                                                         | HempDB Documentation                                                                                       |
 |:------------------------------------------------------------------------------------------------------:|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------|
-| [![Django](https://skillicons.dev/icons?i=django)](https://www.djangoproject.com/)                     | The frontend and backend of HempDB are constructed using Django. Django has templated frontend interfaces, backend logic written in Python, and more features that HempDB utilizes. | [File Structure](docs/FILES.md), [Django Admin Portal](docs/ADMIN.md#user-management-django-admin-portal ) |
+| [![Django](https://skillicons.dev/icons?i=django)](https://www.djangoproject.com/)                     | The frontend and backend of HempDB are constructed using Django. Django has templated frontend interfaces, backend logic written in Python, and more features that HempDB utilizes. | [File Structure](docs/FILES.md), [Django Admin Portal](docs/ADMIN.md#user-management-django-admin-portal) |
 | [![MySQL](https://skillicons.dev/icons?i=mysql)](https://www.mysql.com/)                               | HempDB uses MySQL to store all of its data. This is the backbone of the application, and it allows for more complex relational data.                                                | [Models](docs/MODELS.md), [MySQL Database](docs/INFRA.md#mysql-database)                                   |
 | [![Docker](https://skillicons.dev/icons?i=docker)](https://www.docker.com/)                            | HempDB is deployed as Docker Compose stacks from images published to GitHub Container Registry.                                                                                     | [Production Deployment](docs/PRODUCTION.md), [Website](docs/INFRA.md#website)                              |
 | [![GitHub Actions](https://skillicons.dev/icons?i=githubactions)](https://github.com/features/actions) | GitHub Actions hosts workflows like continuous integration testing and deploying the documentation site.                                                                            | [GitHub Actions](docs/BUILD.md#github-actions)                                                             |
@@ -129,7 +129,7 @@ Open phpMyAdmin at <http://localhost:8081>. No production database, Gmail, or Se
 - See [DEVELOP.md](docs/DEVELOP.md) for local setup, development commands, and configuration overrides.
 - See [PRODUCTION.md](docs/PRODUCTION.md) for production container configuration and deployment operations.
 - User guides for public users and administrators are located in [USER.md](docs/USER.md) and [ADMIN.md](docs/ADMIN.md) respectively.
-- To submit a bug report or feature request, please create a new issue [here](https://github.com/osu-cass/hemp-db/issues).
+- We are not currently accepting public contributions or unsolicited pull requests, and we do not use GitHub Issues for bug reports or feature requests. The internal team manages tickets and development through Azure DevOps. See [Contributing](CONTRIBUTING.md) for the contribution policy.
 
 ## Service Architecture
 

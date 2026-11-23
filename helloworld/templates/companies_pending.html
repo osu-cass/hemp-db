@@ -14,6 +14,45 @@
       Review Pending Changes
     </h2>
   {% endif %}
+  {% if upload_batches %}
+    <div class="container d-flex justify-content-center mb-4">
+      <div class="w-75">
+        <h4>Uploads Awaiting Review</h4>
+        <table class="table table-striped align-middle">
+          <thead>
+            <tr>
+              <th>Submitted by</th>
+              <th>Submitted</th>
+              <th>Companies</th>
+              {% if perms.helloworld.review_company_changes %}<th></th>{% endif %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for batch in upload_batches %}
+              <tr>
+                <td>{{ batch.author__username|default:"Deleted user" }}</td>
+                <td>{{ batch.submitted_at }}</td>
+                <td>{{ batch.company_count }}</td>
+                {% if perms.helloworld.review_company_changes %}
+                  <td class="text-end">
+                    <form method="post" action="{% url 'upload-batch-approve' batch.upload_batch %}" class="d-inline">
+                      {% csrf_token %}
+                      <button type="submit" class="btn btn-success btn-sm">Approve upload</button>
+                    </form>
+                    <form method="post" action="{% url 'upload-batch-reject' batch.upload_batch %}" class="d-inline">
+                      {% csrf_token %}
+                      <button type="submit" class="btn btn-danger btn-sm">Reject upload</button>
+                    </form>
+                  </td>
+                {% endif %}
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <p class="text-muted small">Each uploaded company is also listed under Create Changes for individual review.</p>
+      </div>
+    </div>
+  {% endif %}
   <div class="container d-flex justify-content-center">
     <div class="accordion w-75" id="pendingChangesAccordion">
       
