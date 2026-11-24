@@ -297,17 +297,23 @@ def companies(request: HttpRequest) -> HttpResponse:
             pending_change = PendingChanges.objects.create(pending_company=company, changeType='create', author=request.user)
             email_admins('created', company.Name, pending_change.id, request.get_host())
             return redirect('/companies')  # Redirect to a success page
+        # The create modal re-renders hidden, so list its errors on the page
+        for field in form:
+            for error in field.errors:
+                messages.error(request, f"{field.label}: {error}")
+        for error in form.non_field_errors():
+            messages.error(request, error)
     else:
         form = PendingCompanyForm()
-        uploadForm = UploadFileForm()
-        searchForm = SearchForm()
-        filterStatusForm = FilterStatusForm()
-        filterIndustryForm = FilterIndustryForm()
-        filterCategoryForm = FilterCategoryForm()
-        filterStakeholderGroupForm = FilterStakeholderGroupForm()
-        filterStageForm = FilterStageForm()
-        filterProductGroupForm = FilterProductGroupForm()
-        filterSolutionForm = FilterSolutionForm()
+    uploadForm = UploadFileForm()
+    searchForm = SearchForm()
+    filterStatusForm = FilterStatusForm()
+    filterIndustryForm = FilterIndustryForm()
+    filterCategoryForm = FilterCategoryForm()
+    filterStakeholderGroupForm = FilterStakeholderGroupForm()
+    filterStageForm = FilterStageForm()
+    filterProductGroupForm = FilterProductGroupForm()
+    filterSolutionForm = FilterSolutionForm()
 
     data = zip(companies, solutions, categories, productGroups, stakeholderGroups, stages)
 
@@ -333,9 +339,11 @@ def edit_company(request: HttpRequest, id: int) -> HttpResponse:
 
     company = Company.objects.get(id = id)
     original_company = deepcopy(company) # Deep copy original data for location comparison
-    form = PendingCompanyForm(request.POST, instance=company)
+    # Bind only on POST; an unbound form is never valid
+    data = request.POST if request.method == 'POST' else None
+    form = PendingCompanyForm(data, instance=company)
 
-    if request.POST and form.is_valid():
+    if form.is_valid():
         company_edit = form.save(commit=False)
         new_company = PendingCompany(
             **company_edit.shared_concrete_field_values(PendingCompany)
@@ -361,9 +369,8 @@ def edit_company(request: HttpRequest, id: int) -> HttpResponse:
         pending_change = PendingChanges.objects.create(pending_company=new_company, changeType='edit', company=company, author=request.user)
         email_admins('edited', new_company.Name, pending_change.id, request.get_host())
         return redirect('/companies')  # Redirect to a success page
-    else: 
-        form = PendingCompanyForm(instance=company)
 
+    # An invalid bound form re-renders with its errors and entered values
     return render(request, 'edit_companies.html', {'form': form, 'company': company})
 
 def check_if_location_edited(company: Company, new_company: PendingCompany) -> bool:
