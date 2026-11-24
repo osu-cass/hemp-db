@@ -12,7 +12,34 @@ from .models import Grower
 from .models import Industry
 from .models import Status
 from .models import Resources
+from .locations import US_COUNTRY_ALIASES, US_STATE_CHOICES, US_STATES, clean_location, is_us_country
 from .validators import HTTPS_URL_MESSAGE
+
+
+class StateWidget(forms.TextInput):
+    """Render State as a USPS dropdown for USA companies and free text otherwise."""
+
+    template_name = "widgets/us_state.html"
+
+    def __init__(self, attrs=None):
+        super().__init__(attrs)
+        self.us_country = False
+
+    def get_context(self, name, value, attrs):
+        """Add the USPS choices and which control starts active."""
+        context = super().get_context(name, value, attrs)
+        widget = context["widget"]
+        value = widget["value"] or ""
+        widget.update(
+            field_id=widget["attrs"].pop("id", ""),
+            us_country=self.us_country,
+            choices=US_STATE_CHOICES,
+            # Keep an unmapped value selected so an edit never blanks it silently
+            unmapped=value if value not in US_STATES else "",
+            us_countries="|".join(sorted(US_COUNTRY_ALIASES)),
+        )
+        return context
+
 
 class ResourceForm(forms.ModelForm):
     CHOICES = (
@@ -115,12 +142,30 @@ class PendingCompanyForm(forms.ModelForm):
         fields = "__all__"
         # One message whether the form field or the model validator rejects it.
         error_messages = {"ProductsPageUrl": {"invalid": HTTPS_URL_MESSAGE}}
+        widgets = {"State": StateWidget}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['Latitude'].label = "Latitude (Up to 6 decimals)"
         self.fields['Longitude'].label = "Longitude (Up to 6 decimals)"
-        self.fields['State'].label = "State (full name, unabbreviated)"
+        self.fields['State'].label = "State"
+        self.fields['State'].widget.us_country = is_us_country(self['Country'].value())
+
+    def clean(self):
+        """Store a USPS State code and check ZIP format for USA companies."""
+        cleaned_data = super().clean()
+        state, zip_code, errors = clean_location(
+            cleaned_data.get("Country"),
+            cleaned_data.get("State"),
+            cleaned_data.get("ZIP"),
+            allow_state_names=False,
+        )
+        for field_name, value in (("State", state), ("ZIP", zip_code)):
+            if field_name in cleaned_data:
+                cleaned_data[field_name] = value
+        for field_name, message in errors.items():
+            self.add_error(field_name, message)
+        return cleaned_data
 
 class CategoryForm(forms.ModelForm): 
     

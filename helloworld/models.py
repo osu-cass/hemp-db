@@ -161,6 +161,7 @@ class CompanyDetail(models.Model):
     Product = models.CharField(max_length=255, blank=True)
     City = models.CharField(max_length=250, blank=True)
     State = models.CharField(max_length=250, blank=True)
+    ZIP = models.CharField("ZIP code", max_length=32, blank=True)
     Country = models.CharField(max_length=250)
     Latitude = models.DecimalField(max_digits=8, decimal_places=6, null=True, blank=True)
     Longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
