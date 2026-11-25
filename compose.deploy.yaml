@@ -41,7 +41,7 @@ x-deployment-defaults: &deployment-defaults
 
 services:
   valkey:
-    image: valkey/valkey:9.1-alpine
+    image: valkey/valkey:9.2-alpine
     # The image's valkey user; starting non-root skips the entrypoint's
     # chown/setpriv, which cap_drop ALL would otherwise break.
     user: "999:1000"
